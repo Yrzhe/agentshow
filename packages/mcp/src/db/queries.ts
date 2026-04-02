@@ -102,20 +102,44 @@ export function getActiveSessionsSummary(
   return db
     .prepare(
       `
-        SELECT
-          s.project_id,
-          s.project_name,
-          COUNT(*) AS active_sessions,
-          COALESCE(MAX(n.notes_count), 0) AS notes_count
-        FROM sessions s
-        LEFT JOIN (
+        WITH note_counts AS (
           SELECT project_id, COUNT(*) AS notes_count
           FROM notes
           GROUP BY project_id
-        ) n ON n.project_id = s.project_id
-        WHERE s.status = 'active'
-        GROUP BY s.project_id, s.project_name
-        ORDER BY s.project_name ASC
+        ),
+        active_projects AS (
+          SELECT
+            s.project_id,
+            s.project_name,
+            COUNT(*) AS active_sessions,
+            COALESCE(MAX(n.notes_count), 0) AS notes_count
+          FROM sessions s
+          LEFT JOIN note_counts n ON n.project_id = s.project_id
+          WHERE s.status = 'active'
+          GROUP BY s.project_id, s.project_name
+        ),
+        history_only_projects AS (
+          SELECT
+            h.project_id,
+            h.project_name,
+            0 AS active_sessions,
+            COALESCE(n.notes_count, 0) AS notes_count
+          FROM session_history h
+          LEFT JOIN note_counts n ON n.project_id = h.project_id
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM sessions s
+            WHERE s.project_id = h.project_id
+              AND s.status = 'active'
+          )
+          GROUP BY h.project_id, h.project_name, n.notes_count
+        )
+        SELECT *
+        FROM active_projects
+        UNION ALL
+        SELECT *
+        FROM history_only_projects
+        ORDER BY active_sessions DESC, project_name ASC
       `,
     )
     .all() as ActiveSessionsSummaryRow[]

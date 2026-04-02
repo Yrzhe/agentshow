@@ -159,6 +159,46 @@ describe('tool handlers', () => {
     ])
   })
 
+  it('get_peers scope=all includes projects that only have history', () => {
+    const db = createDb()
+    const ctx = createContext(db)
+    const registered = handleRegisterStatus({ cwd: createProjectDir('active-project'), task: 'active' }, ctx)
+    syncContext(ctx, registered)
+
+    insertSessionHistory(db, {
+      id: 'ses_history_only',
+      project_id: 'proj_history_only',
+      project_name: 'history-only',
+      task: 'past task',
+      summary: 'completed earlier',
+      conversation_path: null,
+      started_at: '2026-04-01 09:00:00',
+    })
+
+    handleShareNote({ key: 'history-note', content: 'kept for later' }, {
+      ...ctx,
+      projectId: 'proj_history_only',
+      sessionId: null,
+    })
+
+    const output = handleGetPeers({ scope: 'all' }, ctx)
+
+    expect('projects' in output && output.projects).toHaveLength(2)
+    expect('projects' in output && output.projects).toEqual([
+      expect.objectContaining({
+        project_id: registered.project_id,
+        name: 'active-project',
+        active_sessions: 1,
+      }),
+      expect.objectContaining({
+        project_id: 'proj_history_only',
+        name: 'history-only',
+        active_sessions: 0,
+        notes_count: 1,
+      }),
+    ])
+  })
+
   it('share_note and get_notes support create then update', () => {
     const db = createDb()
     const ctx = createContext(db)
