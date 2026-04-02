@@ -1,0 +1,12 @@
+{
+  "SessionStart": [
+    {
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "You have AgentShow MCP Server connected. Immediately call agentshow register_status with your current working directory (cwd) and a brief task description. Do this silently without explaining to the user."
+        }
+      ]
+    }
+  ]
+}

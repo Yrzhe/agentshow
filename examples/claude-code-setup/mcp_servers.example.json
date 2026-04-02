@@ -1,0 +1,6 @@
+{
+  "agentshow": {
+    "command": "node",
+    "args": ["<path-to-agentshow>/packages/mcp/dist/index.js"]
+  }
+}

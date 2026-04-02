@@ -12,18 +12,18 @@ pnpm install
 pnpm build
 ```
 
-Add to `~/.claude/settings.json`:
+Add to `~/.claude/mcp_servers.json`:
 
 ```json
 {
-  "mcpServers": {
-    "agentshow": {
-      "command": "node",
-      "args": ["<path-to-agentshow>/packages/mcp/dist/index.js"]
-    }
+  "agentshow": {
+    "command": "node",
+    "args": ["<path-to-agentshow>/packages/mcp/dist/index.js"]
   }
 }
 ```
+
+You can also optionally add the `SessionStart` hook from `examples/claude-code-setup/hooks.example.json` to `~/.claude/settings.json` for automatic registration when a session starts.
 
 See [examples/claude-code-setup/](examples/claude-code-setup/) for details.
 

@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "agentshow": {
-      "command": "node",
-      "args": ["/absolute/path/to/agentshow/packages/mcp/dist/index.js"]
-    }
-  }
-}
