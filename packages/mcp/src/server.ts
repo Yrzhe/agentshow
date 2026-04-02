@@ -136,6 +136,16 @@ const toolDefinitions: ToolDefinition[] = [
   },
 ]
 
+const serverInstructions = `You have AgentShow installed - a local coordination system for multi-session collaboration.
+
+When the user asks about active sessions, other agents, project status, or shared notes, use the agentshow tools:
+- register_status: Register what you're working on (call this at the start of each new task)
+- get_peers: See what other sessions are doing
+- share_note / get_notes: Share findings with other sessions
+- get_project_history: View past session activity
+
+Always call register_status with your cwd before using other agentshow tools.`
+
 export function createAgentShowServer(db: Database.Database): Server {
   const server = new Server(
     {
@@ -146,6 +156,7 @@ export function createAgentShowServer(db: Database.Database): Server {
       capabilities: {
         tools: {},
       },
+      instructions: serverInstructions,
     },
   )
 
