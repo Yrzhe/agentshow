@@ -1,11 +1,14 @@
-# AgentShow
+# AgentShow — See what your AI agents are doing
 
-Let your AI agents know what each other is doing.
-
-AgentShow is a local MCP Server that enables multiple Claude Code sessions
-to share context, coordinate work, and avoid duplication automatically.
+AgentShow is an agent observability platform for Claude Code and similar agent
+workflows. It is evolving from a multi-session coordination tool into a
+Daemon + Skill + Cloud architecture for monitoring, syncing, and understanding
+what your AI agents are doing.
 
 ## Quick Start
+
+The v1 local MCP Server is still available and supported as a standalone
+open-source tool:
 
 ```bash
 pnpm install
@@ -13,20 +16,25 @@ pnpm build
 claude mcp add --scope user agentshow -- node <path-to>/packages/mcp/dist/index.js
 ```
 
-`--scope user` installs AgentShow as a global Claude Code MCP server for your user account, so it works in every directory.
+`--scope user` installs AgentShow as a global Claude Code MCP server for your
+user account, so it works in every directory.
 
-You can also optionally add the `UserPromptSubmit` hook from `examples/claude-code-setup/hooks.example.json` to `~/.claude/settings.json` for automatic registration when a session starts being used.
+You can also optionally add the `UserPromptSubmit` hook from
+`examples/claude-code-setup/hooks.example.json` to `~/.claude/settings.json`
+for automatic registration when a session starts being used.
 
 See [examples/claude-code-setup/](examples/claude-code-setup/) for details.
 
-## How It Works
+## Product Direction
 
-1. Each Claude Code session starts its own local AgentShow MCP process.
-2. On the first `register_status` call, AgentShow detects or creates the project's `.agentshow.json`.
-3. Session state, shared notes, and session history are stored in `~/.agentshow/agentshow.db`.
-4. Other sessions can call `get_peers`, `get_notes`, and `get_project_history` to coordinate work and reuse context.
+AgentShow is moving toward a new architecture:
 
-Within the same project, sessions can see detailed peer activity and shared notes. Across projects, AgentShow returns project-level summaries unless a specific project is explicitly requested.
+1. A local daemon monitors Claude Code session files passively.
+2. A Claude Code skill provides user-facing controls and workflow entry points.
+3. A cloud backend ingests session events for observability, history, and UI.
+
+The original MCP server remains in this repository and continues to work as a
+standalone coordination tool.
 
 ## Packages
 
@@ -34,6 +42,8 @@ Within the same project, sessions can see detailed peer activity and shared note
 |---------|-------------|
 | `@agentshow/shared` | Shared types and utilities |
 | `@agentshow/mcp` | Local MCP Server for Claude Code |
+| `@agentshow/daemon` | Local daemon for automatic Claude Code session monitoring. Coming Soon |
+| `@agentshow/skill` | Claude Code skill for controlling AgentShow workflows. Coming Soon |
 
 ## Development
 
@@ -45,6 +55,8 @@ pnpm test
 Workspace contents:
 - `packages/shared`: shared types, constants, and ID utilities
 - `packages/mcp`: the MCP server, SQLite layer, project detection, and tool handlers
+- `packages/daemon`: placeholder for the local monitoring daemon
+- `packages/skill`: placeholder for the Claude Code skill package
 - `examples/claude-code-setup`: Claude Code setup examples and collaboration templates
 
 ## License

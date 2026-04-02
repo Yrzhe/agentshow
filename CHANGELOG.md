@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Product direction: from MCP-only to Daemon + Skill + Cloud architecture
+- Reorganized docs into current + archive structure
+
 ## [0.1.0] - 2026-04-02
 
 ### Added
