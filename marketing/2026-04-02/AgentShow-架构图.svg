@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 540" width="1200" height="540">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Virgil:wght@400&amp;display=swap');
+    text { font-family: 'Virgil', 'Segoe Print', 'Comic Sans MS', 'Bradley Hand', cursive; fill: #1e1e1e; }
+    .title { font-size: 30px; font-weight: 400; }
+    .phase { font-size: 19px; fill: #1e1e1e; }
+    .label { font-size: 15px; }
+    .small { font-size: 13px; fill: #555; }
+    .code { font-family: 'Virgil', 'Segoe Print', cursive; font-size: 12px; fill: #555; }
+  </style>
+
+  <rect width="1200" height="540" fill="#ffffff" rx="0"/>
+
+  <!-- Title -->
+  <text x="40" y="40" class="title">AgentShow</text>
+  <text x="40" y="62" class="small" style="font-size:14px; fill:#888">local agent awareness → shareable sessions → agent discovery</text>
+
+  <!-- ═══ PHASE 1 ═══ -->
+  <!-- Hand-drawn box -->
+  <path d="M 28,88 C 30,86 395,84 398,88 C 400,90 402,438 398,442 C 396,444 32,446 28,442 C 26,440 26,90 28,88" fill="none" stroke="#1e1e1e" stroke-width="1.5" opacity="0.8"/>
+
+  <text x="48" y="118" class="phase">Phase 1 — Local MCP</text>
+
+  <!-- Agent A box (sketchy) -->
+  <path d="M 50,135 C 52,133 196,132 198,135 C 200,137 201,227 198,230 C 196,232 52,233 50,230 C 48,228 48,137 50,135" fill="#e3ecfa" stroke="#1971c2" stroke-width="1.8" opacity="0.9"/>
+  <text x="124" y="162" text-anchor="middle" class="label" fill="#1971c2">Claude Code</text>
+  <text x="124" y="182" text-anchor="middle" class="code" fill="#1971c2">Agent A</text>
+  <text x="124" y="218" text-anchor="middle" class="code" fill="#1971c2" style="font-size:11px">refactoring auth</text>
+
+  <!-- Agent B box (sketchy) -->
+  <path d="M 228,135 C 230,133 376,132 378,135 C 380,137 381,227 378,230 C 376,232 232,233 228,230 C 226,228 226,137 228,135" fill="#e3ecfa" stroke="#1971c2" stroke-width="1.8" opacity="0.9"/>
+  <text x="303" y="162" text-anchor="middle" class="label" fill="#1971c2">Cursor</text>
+  <text x="303" y="182" text-anchor="middle" class="code" fill="#1971c2">Agent B</text>
+  <text x="303" y="218" text-anchor="middle" class="code" fill="#1971c2" style="font-size:11px">updating schema</text>
+
+  <!-- Sketchy arrows between agents -->
+  <path d="M 198,170 C 205,168 218,167 228,170" fill="none" stroke="#1971c2" stroke-width="1.5" marker-end="url(#hand1)"/>
+  <path d="M 228,195 C 218,197 208,198 198,195" fill="none" stroke="#1971c2" stroke-width="1.5" marker-end="url(#hand1)"/>
+  <text x="213" y="160" text-anchor="middle" class="code" fill="#1971c2" style="font-size:11px">sync</text>
+
+  <!-- API list (sketchy box) -->
+  <path d="M 50,250 C 52,248 376,247 378,250 C 380,252 381,362 378,365 C 376,367 52,368 50,365 C 48,363 48,252 50,250" fill="#fff" stroke="#1971c2" stroke-width="1.2" stroke-dasharray="6,4" opacity="0.7"/>
+  <text x="68" y="278" class="code" fill="#1971c2">register_status()</text>
+  <text x="225" y="278" class="small">→ "i'm on X"</text>
+  <text x="68" y="300" class="code" fill="#1971c2">get_peers()</text>
+  <text x="225" y="300" class="small">→ what others do</text>
+  <text x="68" y="322" class="code" fill="#1971c2">share_note()</text>
+  <text x="225" y="322" class="small">→ pass context</text>
+  <text x="68" y="344" class="code" fill="#1971c2">get_project_history()</text>
+  <text x="225" y="344" class="small">→ session log</text>
+
+  <!-- SQLite (pill shape, sketchy) -->
+  <path d="M 130,385 C 140,375 280,375 290,385 C 300,395 300,408 290,418 C 280,428 140,428 130,418 C 120,408 120,395 130,385" fill="#e3ecfa" stroke="#1971c2" stroke-width="1.2"/>
+  <text x="210" y="405" text-anchor="middle" class="code" fill="#1971c2">SQLite + .agentshow.json</text>
+
+  <!-- Line down to sqlite -->
+  <path d="M 210,365 C 212,372 211,378 210,385" fill="none" stroke="#1971c2" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- ═══ PHASE 2 ═══ -->
+  <path d="M 418,88 C 420,86 785,84 788,88 C 790,90 792,438 788,442 C 786,444 422,446 418,442 C 416,440 416,90 418,88" fill="none" stroke="#1e1e1e" stroke-width="1.5" opacity="0.8"/>
+
+  <text x="438" y="118" class="phase">Phase 2 — Shareable Sessions</text>
+
+  <!-- CLI box -->
+  <path d="M 438,140 C 440,138 558,137 560,140 C 562,142 563,182 560,185 C 558,187 442,188 438,185 C 436,183 436,142 438,140" fill="#fff4e6" stroke="#e8590c" stroke-width="1.8"/>
+  <text x="499" y="168" text-anchor="middle" class="code" fill="#e8590c">$ agentshow push</text>
+
+  <!-- Arrow to workers -->
+  <path d="M 560,162 C 575,160 590,159 608,162" fill="none" stroke="#e8590c" stroke-width="1.5" marker-end="url(#hand2)"/>
+
+  <!-- Workers box -->
+  <path d="M 608,140 C 610,138 768,137 770,140 C 772,142 773,182 770,185 C 768,187 612,188 608,185 C 606,183 606,142 608,140" fill="#fff4e6" stroke="#e8590c" stroke-width="1.8"/>
+  <text x="689" y="168" text-anchor="middle" class="code" fill="#e8590c">Cloudflare Workers</text>
+
+  <!-- Browser mockup (hand-drawn) -->
+  <path d="M 438,210 C 440,207 766,206 768,210 C 770,212 771,388 768,392 C 766,394 442,395 438,392 C 436,390 436,212 438,210" fill="#fff" stroke="#c4a882" stroke-width="1.5"/>
+
+  <!-- Browser bar -->
+  <path d="M 438,210 L 768,210 L 768,240 L 438,240 Z" fill="#f5efe8" stroke="none"/>
+  <circle cx="456" cy="225" r="5" fill="#ff6058" stroke="none"/>
+  <circle cx="472" cy="225" r="5" fill="#ffbd2e" stroke="none"/>
+  <circle cx="488" cy="225" r="5" fill="#27ca40" stroke="none"/>
+  <path d="M 508,219 C 510,217 708,216 710,219 C 712,221 712,230 710,232 C 708,234 510,235 508,232 C 506,230 506,221 508,219" fill="#fff" stroke="#ddd" stroke-width="0.8"/>
+  <text x="609" y="229" text-anchor="middle" style="font-family: 'Virgil', cursive; font-size:9px; fill:#aaa">user / project / session</text>
+
+  <!-- Session content -->
+  <text x="455" y="265" class="label" fill="#1971c2" style="font-size:13px">Session: refactoring auth module</text>
+
+  <!-- Squiggly content lines -->
+  <path d="M 455,278 C 460,276 600,275 620,278" fill="none" stroke="#ddd" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 455,294 C 460,292 680,291 700,294" fill="none" stroke="#ddd" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 455,310 C 460,308 560,307 580,310" fill="none" stroke="#ddd" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Tool call block -->
+  <path d="M 455,328 C 457,326 746,325 748,328 C 750,330 750,372 748,374 C 746,376 457,377 455,374 C 453,372 453,330 455,328" fill="#fafafa" stroke="#eee" stroke-width="1"/>
+  <text x="465" y="348" class="code" fill="#888">→ Read src/auth.ts</text>
+  <text x="465" y="365" class="code" fill="#888">→ Edit: replace JWT validation</text>
+
+  <text x="438" y="418" class="small">reasoning · tool calls · decisions · diffs</text>
+
+  <!-- ═══ PHASE 3 ═══ -->
+  <path d="M 808,88 C 810,86 1165,84 1168,88 C 1170,90 1172,438 1168,442 C 1166,444 812,446 808,442 C 806,440 806,90 808,88" fill="none" stroke="#1e1e1e" stroke-width="1.5" opacity="0.8"/>
+
+  <text x="828" y="118" class="phase">Phase 3 — Agent Discovery</text>
+
+  <!-- User A circle (hand-drawn) -->
+  <path d="M 875,160 C 900,148 930,155 935,180 C 940,205 920,225 895,225 C 870,225 850,210 850,185 C 850,165 860,155 875,160" fill="#f3f0ff" stroke="#7048e8" stroke-width="1.5"/>
+  <text x="892" y="188" text-anchor="middle" class="code" fill="#7048e8">User A</text>
+  <text x="892" y="204" text-anchor="middle" style="font-family:'Virgil',cursive; font-size:10px; fill:#999">3 agents</text>
+
+  <!-- User B circle -->
+  <path d="M 1055,160 C 1080,148 1110,155 1115,180 C 1120,205 1100,225 1075,225 C 1050,225 1030,210 1030,185 C 1030,165 1040,155 1055,160" fill="#f3f0ff" stroke="#7048e8" stroke-width="1.5"/>
+  <text x="1072" y="188" text-anchor="middle" class="code" fill="#7048e8">User B</text>
+  <text x="1072" y="204" text-anchor="middle" style="font-family:'Virgil',cursive; font-size:10px; fill:#999">2 agents</text>
+
+  <!-- User C circle -->
+  <path d="M 965,270 C 990,258 1020,265 1025,290 C 1030,315 1010,335 985,335 C 960,335 940,320 940,295 C 940,275 950,265 965,270" fill="#f3f0ff" stroke="#7048e8" stroke-width="1.5"/>
+  <text x="982" y="298" text-anchor="middle" class="code" fill="#7048e8">User C</text>
+  <text x="982" y="314" text-anchor="middle" style="font-family:'Virgil',cursive; font-size:10px; fill:#999">4 agents</text>
+
+  <!-- Sketchy connection lines -->
+  <path d="M 920,215 C 930,240 945,260 955,275" fill="none" stroke="#c4b5fd" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <path d="M 1045,215 C 1030,245 1015,265 1005,275" fill="none" stroke="#c4b5fd" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <path d="M 930,185 C 960,180 1005,178 1030,185" fill="none" stroke="#c4b5fd" stroke-width="1.5" stroke-dasharray="5,4"/>
+
+  <!-- Cloud hub (hand-drawn pill) -->
+  <path d="M 900,370 C 910,358 1060,358 1070,370 C 1080,382 1080,400 1070,412 C 1060,424 910,424 900,412 C 890,400 890,382 900,370" fill="#7048e8" stroke="none"/>
+  <text x="985" y="396" text-anchor="middle" class="label" fill="#fff" style="font-size:15px">AgentShow Cloud</text>
+
+  <path d="M 982,335 C 983,345 984,358 985,370" fill="none" stroke="#c4b5fd" stroke-width="1.5"/>
+
+  <text x="828" y="435" class="small" fill="#7048e8" style="font-size:14px">discover → read → hand off</text>
+
+  <!-- Phase arrows -->
+  <path d="M 398,260 C 405,258 410,257 418,260" fill="none" stroke="#ccc" stroke-width="2" marker-end="url(#hand3)"/>
+  <path d="M 788,260 C 795,258 800,257 808,260" fill="none" stroke="#ccc" stroke-width="2" marker-end="url(#hand3)"/>
+
+  <!-- Bottom -->
+  <path d="M 40,470 C 200,468 900,467 1160,470" fill="none" stroke="#e5e5e5" stroke-width="1"/>
+  <text x="40" y="500" class="small" style="fill:#bbb; font-size:13px">TypeScript · SQLite · MCP Protocol · Cloudflare Workers</text>
+
+  <!-- Hand-drawn arrow markers -->
+  <defs>
+    <marker id="hand1" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M 0,1 L 9,4 L 0,7" fill="none" stroke="#1971c2" stroke-width="1.2" stroke-linecap="round"/>
+    </marker>
+    <marker id="hand2" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M 0,1 L 9,4 L 0,7" fill="none" stroke="#e8590c" stroke-width="1.2" stroke-linecap="round"/>
+    </marker>
+    <marker id="hand3" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M 0,1 L 9,4 L 0,7" fill="none" stroke="#ccc" stroke-width="1.2" stroke-linecap="round"/>
+    </marker>
+  </defs>
+</svg>

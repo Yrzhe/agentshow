@@ -1,0 +1,8 @@
+## AgentShow 协作
+
+本项目已接入 AgentShow，请遵循以下规范：
+
+- 开始新任务时，调用 `agentshow.register_status` 汇报你在做什么
+- 遇到重要发现或决策变更时，调用 `agentshow.share_note` 共享给其他 session
+- 开始工作前，调用 `agentshow.get_peers` 看看有没有其他 session 在做相关的事
+- 完成阶段性工作时，更新 `agentshow.register_status` 中的 task 描述

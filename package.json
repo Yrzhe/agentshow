@@ -1,0 +1,23 @@
+{
+  "name": "agentshow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Let your AI agents know what each other is doing",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "dev": "pnpm --filter @agentshow/mcp dev",
+    "clean": "pnpm -r clean"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "license": "MIT",
+  "author": "yrzhe",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yrzhe/agentshow"
+  }
+}
