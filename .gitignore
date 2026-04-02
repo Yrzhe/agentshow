@@ -1,5 +1,8 @@
 # Dependencies
+node_modules
 node_modules/
+packages/*/node_modules
+**/node_modules/
 
 # Build
 dist/
@@ -19,6 +22,7 @@ dist/
 
 # AgentShow runtime data
 .agentshow.json
+.mcp.json
 
 # Test
 coverage/
