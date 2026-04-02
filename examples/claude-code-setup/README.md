@@ -1,5 +1,7 @@
 # Claude Code Setup for AgentShow
 
+> Configure Claude Code to use AgentShow MCP Server, enabling multi-session coordination across all your projects.
+
 ## Installation Steps
 
 1. Clone the repo:
@@ -16,13 +18,16 @@
 
 3. Register AgentShow with Claude Code:
    ```bash
-   claude mcp add --scope user agentshow -- node <path-to>/packages/mcp/dist/index.js
+   # Replace with your actual cloned path
+   claude mcp add --scope user agentshow -- node $(pwd)/packages/mcp/dist/index.js
    ```
+
+   Run this command from the repository root. `$(pwd)` will automatically expand to the current directory path.
 
 4. `--scope user` means the MCP server is configured globally for your user account, so it is available in every directory, not just this project.
 
-5. Optional but recommended: merge `hooks.example.json` into the `hooks` field of `~/.claude/settings.json`.
-   This adds a `UserPromptSubmit` hook that auto-registers the session with AgentShow the first time you submit a prompt, after MCP tools are available.
+5. Optional: merge `hooks.example.json` into the `hooks` field of `~/.claude/settings.json`.
+   If you do not want to manually call `register_status` every time, this hook will auto-register the session on your first prompt.
 
 6. Optionally copy `CLAUDE.md.example` into your project as `CLAUDE.md` so every session gets the same AgentShow collaboration instructions.
 
@@ -48,3 +53,6 @@
 
 3. `.mcp.json` vs `claude mcp add`
    `.mcp.json` only applies to that specific directory. `claude mcp add --scope user` is the global setup path and is the recommended option here.
+
+4. `node_modules` not installed or build not run
+   If AgentShow fails to connect, make sure you already ran `pnpm install && pnpm build` and that `packages/mcp/dist/index.js` exists.
