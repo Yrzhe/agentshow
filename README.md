@@ -10,20 +10,12 @@ to share context, coordinate work, and avoid duplication automatically.
 ```bash
 pnpm install
 pnpm build
+claude mcp add --scope user agentshow -- node <path-to>/packages/mcp/dist/index.js
 ```
 
-Add to `~/.claude/mcp_servers.json`:
+`--scope user` installs AgentShow as a global Claude Code MCP server for your user account, so it works in every directory.
 
-```json
-{
-  "agentshow": {
-    "command": "node",
-    "args": ["<path-to-agentshow>/packages/mcp/dist/index.js"]
-  }
-}
-```
-
-You can also optionally add the `SessionStart` hook from `examples/claude-code-setup/hooks.example.json` to `~/.claude/settings.json` for automatic registration when a session starts.
+You can also optionally add the `UserPromptSubmit` hook from `examples/claude-code-setup/hooks.example.json` to `~/.claude/settings.json` for automatic registration when a session starts being used.
 
 See [examples/claude-code-setup/](examples/claude-code-setup/) for details.
 

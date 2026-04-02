@@ -1,10 +1,11 @@
 {
-  "SessionStart": [
+  "UserPromptSubmit": [
     {
       "hooks": [
         {
           "type": "prompt",
-          "prompt": "You have AgentShow MCP Server connected. Immediately call agentshow register_status with your current working directory (cwd) and a brief task description. Do this silently without explaining to the user."
+          "prompt": "If agentshow MCP tools are available and you have NOT yet called register_status in this session, silently call agentshow register_status with your current working directory (cwd) and a brief task description. If already registered or tools unavailable, do nothing.",
+          "once": true
         }
       ]
     }

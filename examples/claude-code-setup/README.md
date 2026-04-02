@@ -14,20 +14,15 @@
    pnpm build
    ```
 
-3. Copy the MCP configuration from `mcp_servers.example.json` into `~/.claude/mcp_servers.json`:
-   ```json
-   {
-     "agentshow": {
-       "command": "node",
-       "args": ["/absolute/path/to/agentshow/packages/mcp/dist/index.js"]
-     }
-   }
+3. Register AgentShow with Claude Code:
+   ```bash
+   claude mcp add --scope user agentshow -- node <path-to>/packages/mcp/dist/index.js
    ```
 
-4. Update the `args` path to your actual local `agentshow` checkout.
+4. `--scope user` means the MCP server is configured globally for your user account, so it is available in every directory, not just this project.
 
 5. Optional but recommended: merge `hooks.example.json` into the `hooks` field of `~/.claude/settings.json`.
-   This adds a `SessionStart` hook that tells Claude Code to silently call `agentshow.register_status` as soon as a new session starts.
+   This adds a `UserPromptSubmit` hook that auto-registers the session with AgentShow the first time you submit a prompt, after MCP tools are available.
 
 6. Optionally copy `CLAUDE.md.example` into your project as `CLAUDE.md` so every session gets the same AgentShow collaboration instructions.
 
@@ -40,6 +35,16 @@
 
 ## Files
 
-- `mcp_servers.example.json`: MCP server config snippet for `~/.claude/mcp_servers.json`
-- `hooks.example.json`: optional `SessionStart` hook config for `~/.claude/settings.json`
+- `hooks.example.json`: optional `UserPromptSubmit` hook config for `~/.claude/settings.json`
 - `CLAUDE.md.example`: optional project-level collaboration guidance template
+
+## Troubleshooting
+
+1. `agentshow` tools are not visible
+   Restart the Claude Code session. MCP configuration is only loaded when the session starts.
+
+2. `SessionStart` hook error
+   Do not call MCP tools from a `SessionStart` prompt hook. MCP may not be ready yet. Use `UserPromptSubmit` with `"once": true` instead.
+
+3. `.mcp.json` vs `claude mcp add`
+   `.mcp.json` only applies to that specific directory. `claude mcp add --scope user` is the global setup path and is the recommended option here.
