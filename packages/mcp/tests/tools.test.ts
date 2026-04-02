@@ -288,7 +288,7 @@ describe('tool handlers', () => {
     db.prepare(
       `
         UPDATE sessions
-        SET last_heartbeat = datetime('now', '-6 minutes')
+        SET last_heartbeat = datetime('now', '-31 minutes')
         WHERE id = ?
       `,
     ).run(registeredA.session_id)
