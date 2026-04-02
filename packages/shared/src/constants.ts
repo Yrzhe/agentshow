@@ -13,7 +13,7 @@ export const DB_DIR = '.agentshow'
 export const DB_FILE = 'agentshow.db'
 
 /** Session 超时时间（毫秒） */
-export const SESSION_TIMEOUT_MS = 30 * 60 * 1000  // 30 分钟
+export const SESSION_TIMEOUT_MS = 2 * 60 * 60 * 1000  // 2 小时
 
 /** AgentShow 数据库 schema 版本 */
 export const SCHEMA_VERSION = 1

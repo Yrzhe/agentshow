@@ -198,7 +198,7 @@ describe('database layer', () => {
     db.prepare(
       `
         UPDATE sessions
-        SET last_heartbeat = datetime('now', '-31 minutes')
+        SET last_heartbeat = datetime('now', '-121 minutes')
         WHERE id = 'ses_stale'
       `,
     ).run()
