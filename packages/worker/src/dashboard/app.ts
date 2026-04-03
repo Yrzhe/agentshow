@@ -90,11 +90,104 @@ function renderLoginPage() {
   const wrapper = document.createElement('section')
   wrapper.className = 'login'
   wrapper.innerHTML = [
-    '<div class="card">',
-    '  <div class="page-header"><div><h1>Sign in</h1><p>Connect GitHub to access your synced agent sessions.</p></div></div>',
-    '  <a href="/api/auth/github">Continue with GitHub</a>',
+    '<div class="card" style="max-width:380px;margin:80px auto;text-align:center">',
+    '  <h1 style="margin-bottom:4px">AgentShow</h1>',
+    '  <p class="muted" style="margin-bottom:24px">Sign in to your agent dashboard</p>',
+    '  <a href="/api/auth/github" style="display:block;padding:10px;background:#238636;color:#fff;border-radius:6px;text-decoration:none;margin-bottom:16px">Login with GitHub</a>',
+    '  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><hr style="flex:1;border:none;border-top:1px solid #30363d"><span class="muted">or</span><hr style="flex:1;border:none;border-top:1px solid #30363d"></div>',
+    '  <div id="email-step-1">',
+    '    <form id="email-form" style="display:flex;gap:8px">',
+    '      <input id="email-input" type="email" placeholder="your@email.com" required style="flex:1;padding:8px 12px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3">',
+    '      <button type="submit" style="padding:8px 16px;background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;cursor:pointer">Send code</button>',
+    '    </form>',
+    '  </div>',
+    '  <div id="email-step-2" style="display:none">',
+    '    <p class="muted" style="margin-bottom:8px">Enter the 6-digit code sent to <strong id="sent-to-email"></strong></p>',
+    '    <form id="code-form" style="display:flex;gap:8px">',
+    '      <input id="code-input" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required style="flex:1;padding:8px 12px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;text-align:center;font-size:20px;letter-spacing:4px;font-family:monospace">',
+    '      <button type="submit" style="padding:8px 16px;background:#238636;color:#fff;border:1px solid #238636;border-radius:6px;cursor:pointer">Verify</button>',
+    '    </form>',
+    '    <a href="#" id="back-to-email" style="display:inline-block;margin-top:8px;font-size:12px;color:#8b949e">Use a different email</a>',
+    '  </div>',
+    '  <p id="email-status" class="muted" style="margin-top:12px;display:none"></p>',
+    '  <p class="muted" style="margin-top:24px;font-size:12px"><a href="https://github.com/yrzhe/agentshow" target="_blank" style="color:#8b949e">Deploy your own AgentShow</a></p>',
     '</div>',
   ].join('')
+
+  setTimeout(function() {
+    var step1 = document.getElementById('email-step-1')
+    var step2 = document.getElementById('email-step-2')
+    var status = document.getElementById('email-status')
+    var sentTo = document.getElementById('sent-to-email')
+    var currentEmail = ''
+
+    var emailForm = document.getElementById('email-form')
+    if (emailForm) {
+      emailForm.addEventListener('submit', function(e) {
+        e.preventDefault()
+        currentEmail = document.getElementById('email-input').value
+        status.style.display = 'block'
+        status.textContent = 'Sending code...'
+        status.style.color = '#8b949e'
+        fetch('/api/auth/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: currentEmail })
+        }).then(function(r) { return r.json() }).then(function(data) {
+          if (data.status === 'sent') {
+            step1.style.display = 'none'
+            step2.style.display = 'block'
+            sentTo.textContent = currentEmail
+            status.textContent = 'Code sent! Check your inbox.'
+            status.style.color = '#3fb950'
+          } else {
+            status.textContent = data.error || 'Failed to send'
+            status.style.color = '#f85149'
+          }
+        }).catch(function() {
+          status.textContent = 'Network error'
+          status.style.color = '#f85149'
+        })
+      })
+    }
+
+    var codeForm = document.getElementById('code-form')
+    if (codeForm) {
+      codeForm.addEventListener('submit', function(e) {
+        e.preventDefault()
+        var code = document.getElementById('code-input').value
+        status.textContent = 'Verifying...'
+        status.style.color = '#8b949e'
+        fetch('/api/auth/email/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: currentEmail, code: code })
+        }).then(function(r) { return r.json() }).then(function(data) {
+          if (data.status === 'ok') {
+            location.hash = '#/'
+            location.reload()
+          } else {
+            status.textContent = data.error || 'Invalid code'
+            status.style.color = '#f85149'
+          }
+        }).catch(function() {
+          status.textContent = 'Network error'
+          status.style.color = '#f85149'
+        })
+      })
+    }
+
+    var backLink = document.getElementById('back-to-email')
+    if (backLink) {
+      backLink.addEventListener('click', function(e) {
+        e.preventDefault()
+        step1.style.display = 'block'
+        step2.style.display = 'none'
+        status.style.display = 'none'
+      })
+    }
+  }, 0)
+
   return wrapper
 }
 

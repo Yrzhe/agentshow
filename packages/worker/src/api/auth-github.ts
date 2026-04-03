@@ -34,7 +34,7 @@ authGithubRoutes.get('/github/callback', async (c) => {
   }
 
   if (!isEmailAllowed(githubUser.email, c.env.ALLOWED_EMAILS)) {
-    return c.json({ error: 'Your email is not in the allowed list. Contact the admin.' }, 403)
+    return c.json({ error: `Email ${githubUser.email} is not in the allowed list. Contact the admin.` }, 403)
   }
 
   const userId = await upsertUserByEmail(c.env.DB, {

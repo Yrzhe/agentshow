@@ -6,12 +6,19 @@ import { sha256Hex } from '../lib/hash.js'
 import { signJwt } from '../lib/jwt.js'
 import { isEmailAllowed, upsertUserByEmail } from './auth-github.js'
 
-const MAGIC_LINK_TTL_MINUTES = 15
+const CODE_TTL_MINUTES = 10
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 
 export const authEmailRoutes = new Hono<AppType>()
 
-// POST /email/send — send magic link
+function generateCode(): string {
+  const bytes = new Uint8Array(3)
+  crypto.getRandomValues(bytes)
+  const num = ((bytes[0] << 16) | (bytes[1] << 8) | bytes[2]) % 1000000
+  return String(num).padStart(6, '0')
+}
+
+// POST /email/send — send 6-digit code
 authEmailRoutes.post('/email/send', async (c) => {
   if (!c.env.RESEND_API_KEY) {
     return c.json({ error: 'Email login is not configured. Set RESEND_API_KEY.' }, 501)
@@ -28,60 +35,64 @@ authEmailRoutes.post('/email/send', async (c) => {
     return c.json({ error: 'This email is not in the allowed list.' }, 403)
   }
 
-  const token = `ml_${generateId(32)}`
-  const tokenHash = await sha256Hex(token)
-  const expiresAt = new Date(Date.now() + MAGIC_LINK_TTL_MINUTES * 60 * 1000).toISOString()
+  const code = generateCode()
+  const codeHash = await sha256Hex(code + ':' + email)
+  const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60 * 1000).toISOString()
 
   await c.env.DB.prepare(
     `INSERT INTO magic_links (id, email, token_hash, expires_at) VALUES (?, ?, ?, ?)`,
-  ).bind(generateId(), email, tokenHash, expiresAt).run()
+  ).bind(generateId(), email, codeHash, expiresAt).run()
 
-  const origin = new URL(c.req.url).origin
-  const verifyUrl = `${origin}/api/auth/email/verify?token=${token}`
-
-  await fetch('https://api.resend.com/emails', {
+  const resendResponse = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${c.env.RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'AgentShow <noreply@agentshow.dev>',
+      from: 'AgentShow <noreply@yrzhe.top>',
       to: [email],
-      subject: 'Sign in to AgentShow',
-      html: `<p>Click the link below to sign in to AgentShow:</p>
-<p><a href="${verifyUrl}">${verifyUrl}</a></p>
-<p>This link expires in ${MAGIC_LINK_TTL_MINUTES} minutes.</p>
+      subject: `${code} is your AgentShow login code`,
+      html: `<p>Your AgentShow verification code is:</p>
+<h1 style="font-size:36px;letter-spacing:8px;font-family:monospace">${code}</h1>
+<p>This code expires in ${CODE_TTL_MINUTES} minutes.</p>
 <p>If you didn't request this, you can safely ignore this email.</p>`,
     }),
   })
 
-  return c.json({ status: 'sent', message: 'Check your email for a sign-in link.' })
-})
-
-// GET /email/verify — verify magic link token
-authEmailRoutes.get('/email/verify', async (c) => {
-  const token = c.req.query('token')
-
-  if (!token) {
-    return c.json({ error: 'Missing token' }, 400)
+  if (!resendResponse.ok) {
+    const err = await resendResponse.text()
+    return c.json({ error: `Failed to send email: ${err}` }, 500)
   }
 
-  const tokenHash = await sha256Hex(token)
+  return c.json({ status: 'sent', message: 'Check your email for a 6-digit code.' })
+})
+
+// POST /email/verify — verify 6-digit code
+authEmailRoutes.post('/email/verify', async (c) => {
+  const body = await c.req.json<{ email?: string; code?: string }>()
+  const email = body.email?.trim().toLowerCase()
+  const code = body.code?.trim()
+
+  if (!email || !code) {
+    return c.json({ error: 'Email and code are required' }, 400)
+  }
+
+  const codeHash = await sha256Hex(code + ':' + email)
   const link = await c.env.DB.prepare(
-    `SELECT id, email, expires_at, used FROM magic_links WHERE token_hash = ? LIMIT 1`,
-  ).bind(tokenHash).first<{ id: string; email: string; expires_at: string; used: number }>()
+    `SELECT id, email, expires_at, used FROM magic_links WHERE token_hash = ? AND email = ? LIMIT 1`,
+  ).bind(codeHash, email).first<{ id: string; email: string; expires_at: string; used: number }>()
 
   if (!link) {
-    return c.json({ error: 'Invalid or expired link' }, 400)
+    return c.json({ error: 'Invalid code' }, 400)
   }
 
   if (link.used === 1) {
-    return c.json({ error: 'This link has already been used' }, 400)
+    return c.json({ error: 'This code has already been used' }, 400)
   }
 
   if (new Date(link.expires_at) < new Date()) {
-    return c.json({ error: 'This link has expired' }, 400)
+    return c.json({ error: 'This code has expired' }, 400)
   }
 
   await c.env.DB.prepare(
@@ -101,5 +112,5 @@ authEmailRoutes.get('/email/verify', async (c) => {
     maxAge: SESSION_TTL_SECONDS,
   })
 
-  return c.redirect('/')
+  return c.json({ status: 'ok', redirect: '/' })
 })

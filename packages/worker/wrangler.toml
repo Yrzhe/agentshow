@@ -5,5 +5,5 @@ compatibility_date = "2025-04-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "agentshow"
-database_id = "placeholder"
+database_id = "a4b370d2-d586-4dae-9e8e-73d8a05f1c6a"
 migrations_dir = "migrations"
