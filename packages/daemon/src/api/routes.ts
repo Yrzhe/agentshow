@@ -4,6 +4,8 @@ import type { DaemonSession, DaemonSessionStatus } from '@agentshow/shared'
 import {
   getAllDaemonSessions,
   getDaemonSessionsByStatus,
+  getMcpNotesByProjectSlug,
+  getMcpSessionByCwd,
   getSessionEvents,
   getSessionStats,
 } from '../db/queries.js'
@@ -36,13 +38,29 @@ export function handleApiRequest(
     return
   }
 
+  if (pathname === '/notes') {
+    const notes = getMcpNotesByProjectSlug(db, url.searchParams.get('project_slug') ?? '')
+    sendJson(res, { notes })
+    return
+  }
+
   const parts = pathname.split('/').filter((part) => part.length > 0)
 
   if (parts.length === 2 && parts[0] === 'sessions') {
     const sessionId = decodeURIComponent(parts[1] ?? '')
     const session = findSession(db, sessionId)
+    const mcpSession = session ? getMcpSessionByCwd(db, session.cwd) : null
     const recent_events = getRecentEvents(db, sessionId)
-    sendJson(res, { session, recent_events })
+    sendJson(res, {
+      session: session
+        ? {
+          ...session,
+          task: mcpSession?.task ?? null,
+          files: mcpSession?.files ?? null,
+        }
+        : null,
+      recent_events,
+    })
     return
   }
 

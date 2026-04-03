@@ -23,6 +23,13 @@ type McpSessionInfo = {
   files: string | null
 }
 
+type McpApiNote = {
+  key: string
+  content: string
+  session_id: string | null
+  updated_at: string
+}
+
 export function upsertDaemonSession(db: Database.Database, session: DaemonSession): void {
   db.prepare(
     `
@@ -241,6 +248,21 @@ export function getMcpNotesModifiedSince(db: Database.Database, since: string): 
       'SELECT project_id, key, content, session_id, created_at, updated_at FROM notes WHERE datetime(updated_at) > datetime(?) ORDER BY updated_at ASC',
     )
     .all(since) as McpNote[]
+}
+
+export function getMcpNotesByProjectSlug(
+  db: Database.Database,
+  _projectSlug: string,
+): McpApiNote[] {
+  if (!hasMcpTable(db, 'notes')) {
+    return []
+  }
+
+  return db
+    .prepare(
+      'SELECT key, content, session_id, updated_at FROM notes ORDER BY updated_at DESC',
+    )
+    .all() as McpApiNote[]
 }
 
 export function getMcpSessionByCwd(db: Database.Database, cwd: string): McpSessionInfo | null {

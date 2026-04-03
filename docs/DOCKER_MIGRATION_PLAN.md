@@ -1,7 +1,7 @@
 # Feature: Node.js + SQLite + Docker 迁移
 
 > 日期: 2026-04-04
-> 状态: In Progress
+> 状态: Phase 0-2 已完成 (2026-04-04), Phase 3 待验证
 > 前置: MCP Bridge (Step 3.5) 已完成
 
 ## Overview

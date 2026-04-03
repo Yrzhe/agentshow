@@ -6,6 +6,7 @@ import { runMigrations } from './db/migrate.js'
 import { loadEnv } from './env.js'
 import { authEmailRoutes } from './api/auth-email.js'
 import { authGithubRoutes } from './api/auth-github.js'
+import { dailySummaryRoutes } from './api/daily-summary.js'
 import { notesRoutes } from './api/notes.js'
 import { projectRoutes } from './api/projects.js'
 import { searchRoutes } from './api/search.js'
@@ -35,6 +36,7 @@ app.route('/api/auth', authEmailRoutes)
 app.route('/api/sync', syncRoutes)
 app.route('/api/sessions', summaryRoutes)
 app.route('/api/sessions', sessionRoutes)
+app.route('/api/daily-summary', dailySummaryRoutes)
 app.route('/api/projects', projectRoutes)
 app.route('/api/search', searchRoutes)
 app.route('/api/notes', notesRoutes)

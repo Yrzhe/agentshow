@@ -69,6 +69,15 @@
 - [x] Usage 页：日 token 柱状图（近 14 天）
 - [x] Search 页：搜索 + 高亮 + note 结果 badge
 
+### Docker 迁移 Phase 1 ✅
+- [x] packages/server: Node.js + better-sqlite3 + Hono (32 源文件)
+- [x] 全部 API 路由移植 (sync, sessions, projects, search, notes, usage, tokens, auth, summary)
+- [x] AI 摘要可配置 (Anthropic API / disabled)
+- [x] auto-migration runner
+- [x] Dockerfile (multi-stage Node 20 alpine) + docker-compose.yml
+- [x] .env.example
+- [x] Sync datetime bug 修复
+
 ---
 
 ## 待做
@@ -126,17 +135,19 @@
 ### 已完成轮次
 - ~~Step 4a + 4b: Session 摘要 & 搜索~~ ✅ (2026-04-04)
 - ~~Step 3.5: MCP-Daemon Bridge~~ ✅ (2026-04-04)
+- ~~Docker 迁移 Phase 1~~ ✅ (2026-04-04)
 
-### 当前轮次：Bridge Phase 4 + Step 4c + Step 5
+### 当前轮次：功能补齐
 
-| 任务 | 优先级 | 依赖 | 预估 |
-|------|--------|------|------|
-| Bridge 4A: Daemon API 暴露 MCP 数据 | 高 | 无 | ~70 LOC |
-| Bridge 4B: Skill 更新 (/notes, /peers 显示 task) | 高 | 4A | ~20 LOC |
-| 4c: 每日工作总结 | 中 | 4a ✅ | ~200 LOC |
-| 5a: Token 成本换算 | 中 | 无 | ~200 LOC |
+| # | 任务 | 优先级 | 依赖 | 预估 |
+|---|------|--------|------|------|
+| A | Bridge 4A: Daemon API 暴露 MCP 数据 (`/notes`, sessions 含 task) | 高 | 无 | ~70 LOC |
+| B | Bridge 4B: Skill 更新 (`/notes` 命令, `/peers` 显示 task) | 高 | A | ~20 LOC |
+| C | 4c: 每日工作总结 (API + Dashboard) | 中 | 无 | ~200 LOC |
+| D | 5a: Token 成本换算 (模型单价 → 美元显示) | 中 | 无 | ~200 LOC |
+| E | Docker Phase 2: 端到端集成测试 + VPS 部署文档 | 中 | 无 | ~100 LOC |
 
-**4A + 4c 可并行。**
+**A+C+D+E 可并行。B 依赖 A。**
 
 ---
 

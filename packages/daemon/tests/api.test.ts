@@ -141,6 +141,43 @@ describe('daemon api server', () => {
     ])
   })
 
+  it('returns empty notes when MCP tables do not exist', async () => {
+    const { body } = await getJson('/notes')
+
+    expect(body).toEqual({ notes: [] })
+  })
+
+  it('includes MCP task and files in the session detail response', async () => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        cwd TEXT NOT NULL,
+        status TEXT NOT NULL,
+        task TEXT,
+        files TEXT,
+        last_heartbeat TEXT NOT NULL
+      )
+    `)
+
+    db.prepare(`
+      INSERT INTO sessions (id, cwd, status, task, files, last_heartbeat)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      'mcp_ses_1',
+      '/tmp/project-a',
+      'active',
+      'bridge daemon task',
+      '["src/app.ts","src/db/queries.ts"]',
+      '2026-04-03 10:05:00',
+    )
+
+    const { body } = await getJson('/sessions/ses_1')
+    const session = body.session as DaemonSession & { task: string | null; files: string | null }
+
+    expect(session.task).toBe('bridge daemon task')
+    expect(session.files).toBe('["src/app.ts","src/db/queries.ts"]')
+  })
+
   it('returns session stats', async () => {
     const { body } = await getJson('/sessions/ses_1/stats')
 
