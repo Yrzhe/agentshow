@@ -25,38 +25,53 @@ for automatic registration when a session starts being used.
 
 See [examples/claude-code-setup/](examples/claude-code-setup/) for details.
 
-## Product Direction
+## Architecture
 
-AgentShow is moving toward a new architecture:
+AgentShow uses a Daemon + Skill + Cloud architecture:
 
-1. A local daemon monitors Claude Code session files passively.
-2. A Claude Code skill provides user-facing controls and workflow entry points.
-3. A cloud backend ingests session events for observability, history, and UI.
+1. **Daemon** — A local background process monitors all Claude Code sessions
+   automatically. Zero configuration, zero agent involvement.
+2. **Skill** — A Claude Code skill provides in-session commands (`/peers`,
+   `/stats`, `/projects`, `/history`).
+3. **Cloud** — A cloud backend for observability dashboard and team features.
+   (Coming soon)
 
 The original MCP server remains in this repository and continues to work as a
 standalone coordination tool.
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| `@agentshow/shared` | Shared types and utilities |
-| `@agentshow/mcp` | Local MCP Server for Claude Code |
-| `@agentshow/daemon` | Local daemon for automatic Claude Code session monitoring. Coming Soon |
-| `@agentshow/skill` | Claude Code skill for controlling AgentShow workflows. Coming Soon |
+| Package | Description | Status |
+|---------|-------------|--------|
+| `@agentshow/shared` | Shared types and utilities | Ready |
+| `@agentshow/mcp` | Local MCP Server for Claude Code | Ready |
+| `@agentshow/daemon` | Local daemon for automatic session monitoring | Ready |
+| `@agentshow/skill` | Claude Code skill for AgentShow commands | Ready |
+
+## Install Daemon
+
+```bash
+pnpm install && pnpm build
+./packages/daemon/scripts/install.sh    # starts as macOS LaunchAgent
+./packages/skill/scripts/install.sh     # installs skill to ~/.claude/skills/
+```
+
+Verify: `curl http://127.0.0.1:45677/health`
+
+Uninstall: `./packages/daemon/scripts/uninstall.sh`
 
 ## Development
 
 ```bash
 pnpm build
-pnpm test
+pnpm test    # 69 tests (daemon 43 + mcp 26)
 ```
 
 Workspace contents:
 - `packages/shared`: shared types, constants, and ID utilities
 - `packages/mcp`: the MCP server, SQLite layer, project detection, and tool handlers
-- `packages/daemon`: placeholder for the local monitoring daemon
-- `packages/skill`: placeholder for the Claude Code skill package
+- `packages/daemon`: local daemon — session discovery, JSONL parsing, HTTP API
+- `packages/skill`: Claude Code skill for /peers, /stats, /projects, /history
 - `examples/claude-code-setup`: Claude Code setup examples and collaboration templates
 
 ## License

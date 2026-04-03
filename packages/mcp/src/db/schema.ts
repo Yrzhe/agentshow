@@ -52,7 +52,7 @@ export function initSchema(db: Database.Database): void {
   const currentVersion = db.pragma('user_version', { simple: true }) as number
 
   if (currentVersion > SCHEMA_VERSION) {
-    throw new Error(
+    console.warn(
       `Database schema version ${currentVersion} is newer than supported version ${SCHEMA_VERSION}`,
     )
   }

@@ -164,7 +164,7 @@ v2（本文档）：Daemon 自动监控 — 零配置自动采集、Skill 轻量
 
 ## 实施步骤
 
-### Step 1：Daemon MVP（Node.js + launchd）
+### Step 1：Daemon MVP（Node.js + launchd）— ✅ 已完成 (2026-04-03)
 
 **目标**：后台进程能自动检测所有 Claude Code session，数据存到本地 SQLite。
 
@@ -209,7 +209,7 @@ pnpm install && pnpm build
 - SQLite 中自动出现两条 session 记录
 - 关闭一个 session → 自动标记 inactive
 
-### Step 2：Skill（Claude Code 内交互）
+### Step 2：Skill（Claude Code 内交互）— ✅ 已完成 (2026-04-03)
 
 **目标**：Agent 可以通过 skill 查看 peers、共享 notes。
 

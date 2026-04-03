@@ -1,0 +1,27 @@
+{
+  "name": "@agentshow/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "agentshow-daemon": "dist/main.js"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/main.ts --format esm --clean",
+    "dev": "tsup src/index.ts src/main.ts --format esm --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@agentshow/shared": "workspace:*",
+    "better-sqlite3": "^11.8.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  }
+}

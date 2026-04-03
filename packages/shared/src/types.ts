@@ -162,3 +162,183 @@ export interface GetProjectHistoryOutput {
   }>
   notes: NoteInfo[]
 }
+
+// ============================================================
+// Daemon Types
+// ============================================================
+
+/** Claude Code 原生 session 元数据 (~/.claude/sessions/{pid}.json) */
+export interface ClaudeSessionMeta {
+  pid: number
+  sessionId: string
+  cwd: string
+  startedAt: number
+  kind: string
+  entrypoint: string
+  name?: string
+}
+
+/** JSONL 对话事件中的 token 用量 */
+export interface TokenUsage {
+  input_tokens: number
+  output_tokens: number
+  cache_creation_input_tokens?: number
+  cache_read_input_tokens?: number
+}
+
+/** JSONL 单行事件 (~/.claude/projects/{slug}/{uuid}.jsonl) */
+export interface ConversationEvent {
+  type: string
+  uuid?: string
+  parentUuid?: string | null
+  timestamp?: string
+  sessionId?: string
+  cwd?: string
+  version?: string
+  gitBranch?: string
+  message?: {
+    role?: string
+    content?: unknown
+    usage?: TokenUsage
+    model?: string
+    id?: string
+  }
+}
+
+/** Daemon session 状态 */
+export type DaemonSessionStatus = 'discovered' | 'active' | 'ended'
+
+/** Daemon 追踪的 session 记录 */
+export interface DaemonSession {
+  session_id: string
+  pid: number
+  cwd: string
+  project_slug: string
+  status: DaemonSessionStatus
+  started_at: string
+  last_seen_at: string
+  conversation_path: string | null
+  message_count: number
+  total_input_tokens: number
+  total_output_tokens: number
+  tool_calls: number
+}
+
+/** 提取后的对话事件记录 */
+export interface MessageRecord {
+  id: number
+  session_id: string
+  type: string
+  role: string | null
+  content_preview: string | null
+  tool_name: string | null
+  input_tokens: number
+  output_tokens: number
+  model: string | null
+  timestamp: string
+}
+
+// ============================================================
+// Cloud Config Types
+// ============================================================
+
+/** 隐私上传级别 */
+export type PrivacyLevel = 0 | 1 | 2 | 3
+
+export interface CloudConfig {
+  url: string | null
+  token: string | null
+}
+
+export interface AgentShowConfig {
+  device_id: string
+  cloud: CloudConfig
+  privacy: {
+    level: PrivacyLevel
+  }
+}
+
+// ============================================================
+// Sync Protocol Types
+// ============================================================
+
+export interface SyncPayload {
+  device_id: string
+  synced_at: string
+  sessions: SyncSession[]
+  events: SyncEvent[]
+}
+
+export interface SyncSession {
+  session_id: string
+  pid: number
+  cwd: string
+  project_slug: string
+  status: DaemonSessionStatus
+  started_at: string
+  last_seen_at: string
+  message_count: number
+  total_input_tokens: number
+  total_output_tokens: number
+  tool_calls: number
+  conversation_path?: string | null
+}
+
+export interface SyncEvent {
+  local_id: number
+  session_id: string
+  type: string
+  role: string | null
+  tool_name: string | null
+  input_tokens: number
+  output_tokens: number
+  model: string | null
+  timestamp: string
+  content_preview?: string | null
+}
+
+export interface SyncResponse {
+  status: 'ok' | 'error'
+  accepted_sessions: number
+  accepted_events: number
+  server_time: string
+}
+
+// ============================================================
+// Cloud API Types
+// ============================================================
+
+export interface CloudSession {
+  session_id: string
+  device_id: string
+  pid: number
+  cwd: string
+  project_slug: string
+  status: DaemonSessionStatus
+  started_at: string
+  last_seen_at: string
+  message_count: number
+  total_input_tokens: number
+  total_output_tokens: number
+  tool_calls: number
+  synced_at: string
+}
+
+export interface CloudProject {
+  project_slug: string
+  cwd: string
+  active_sessions: number
+  total_sessions: number
+  total_input_tokens: number
+  total_output_tokens: number
+  total_tool_calls: number
+  last_activity: string
+}
+
+export interface ApiToken {
+  id: string
+  name: string
+  prefix: string
+  created_at: string
+  last_used_at: string | null
+}
