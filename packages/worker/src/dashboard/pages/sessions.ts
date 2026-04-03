@@ -44,7 +44,7 @@ export const sessionsPageJs = `async function renderSessionsPage(context) {
     const row = document.createElement('tr')
     row.innerHTML = [
       '<td><strong>' + escapeHtml(String(session.session_id || '').slice(0, 8)) + '</strong></td>',
-      '<td>' + escapeHtml(shortProject(session.project_slug)) + '</td>',
+      '<td title="' + escapeHtml(session.cwd || session.project_slug) + '">' + escapeHtml(projectName(session.cwd, session.project_slug)) + '</td>',
       '<td>' + statusBadge(session.status) + '</td>',
       '<td>' + escapeHtml(relativeTime(session.started_at)) + '</td>',
       '<td>' + escapeHtml(formatNumber((session.total_input_tokens || 0) + (session.total_output_tokens || 0))) + '</td>',

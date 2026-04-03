@@ -56,4 +56,4 @@ export const API_TOKEN_PREFIX = 'as_'
 export const API_TOKEN_LENGTH = 32
 
 /** 同步批量大小 */
-export const SYNC_BATCH_SIZE = 100
+export const SYNC_BATCH_SIZE = 1000

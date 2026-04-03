@@ -159,12 +159,13 @@ export async function getCloudEvents(
              input_tokens, output_tokens, model, timestamp
       FROM cloud_events
       WHERE user_id = ? AND session_id = ?
-      ORDER BY timestamp ASC, local_id ASC
+        AND type IN ('user', 'assistant', 'system')
+      ORDER BY local_id DESC
       LIMIT ?
     `,
   ).bind(userId, sessionId, opts.limit ?? 100).all<SyncEvent>()
 
-  return results ?? []
+  return (results ?? []).reverse()
 }
 
 export async function getCloudProjects(db: D1Database, userId: string): Promise<CloudProject[]> {

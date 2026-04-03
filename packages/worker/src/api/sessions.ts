@@ -27,7 +27,8 @@ sessionRoutes.get('/:id', async (c) => {
     return c.json({ error: 'Not found' }, 404)
   }
 
-  const events = await getCloudEvents(c.env.DB, c.get('userId'), sessionId, { limit: 20 })
+  const limit = parseNumber(c.req.query('limit'), 50)
+  const events = await getCloudEvents(c.env.DB, c.get('userId'), sessionId, { limit })
   return c.json({ session, events })
 })
 

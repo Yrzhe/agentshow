@@ -12,9 +12,11 @@ export interface ExtractedEvent {
   timestamp: string
 }
 
+const RELEVANT_TYPES = new Set(['user', 'assistant', 'system'])
+
 export function extractEvents(events: ConversationEvent[]): ExtractedEvent[] {
   return events.flatMap((event) => {
-    if (!event.type) {
+    if (!event.type || !RELEVANT_TYPES.has(event.type)) {
       return []
     }
 

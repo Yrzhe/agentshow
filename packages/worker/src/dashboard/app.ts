@@ -1,5 +1,8 @@
 import { sessionDetailPageJs } from './pages/session-detail.js'
 import { sessionsPageJs } from './pages/sessions.js'
+import { createProjectsPage } from './pages/projects.js'
+import { createSettingsPage } from './pages/settings.js'
+import { createUsagePage } from './pages/usage.js'
 
 export const appJs = `const appRoot = document.getElementById('app')
 let cleanup = null
@@ -65,9 +68,9 @@ async function renderRoute(route) {
 
   if (route.name === 'login') return renderLoginPage()
   if (route.name === 'session') return renderSessionDetailPage(context)
-  if (route.name === 'projects') return renderPlaceholderPage('Projects', 'Project aggregates are available. Detailed views can be added next.')
-  if (route.name === 'usage') return renderPlaceholderPage('Usage', 'Usage analytics are coming in the next dashboard slice.')
-  if (route.name === 'settings') return renderPlaceholderPage('Settings', 'Manage tokens and sync preferences from this page soon.')
+  if (route.name === 'projects') { var p = document.createElement('div'); await renderProjectsPage(p); return p }
+  if (route.name === 'usage') { var u = document.createElement('div'); await renderUsagePage(u); return u }
+  if (route.name === 'settings') { var s = document.createElement('div'); await renderSettingsPage(s); return s }
   return renderSessionsPage(context)
 }
 
@@ -227,6 +230,14 @@ function shortProject(slug) {
   return String(slug || '').replace(/^-+/, '').slice(0, 40) || 'unknown'
 }
 
+function projectName(cwd, slug) {
+  if (cwd && cwd.length > 1 && !cwd.startsWith('0123456789abcdef')) {
+    var parts = String(cwd).split('/').filter(function(p) { return p.length > 0 })
+    return parts[parts.length - 1] || shortProject(slug)
+  }
+  return shortProject(slug)
+}
+
 function relativeTime(value) {
   const diff = Date.now() - new Date(value).getTime()
   const minutes = Math.floor(diff / 60000)
@@ -276,4 +287,7 @@ function escapeHtml(value) {
 
 ${sessionsPageJs}
 ${sessionDetailPageJs}
+${createProjectsPage()}
+${createSettingsPage()}
+${createUsagePage()}
 `

@@ -16,12 +16,12 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
   const page = document.createElement('section')
   page.innerHTML = [
     '<div class="page-header">',
-    '  <div><h1>Session ' + escapeHtml(String(session.session_id).slice(0, 8)) + '</h1><p>' + escapeHtml(shortProject(session.project_slug)) + '</p></div>',
+    '  <div><h1>Session ' + escapeHtml(String(session.session_id).slice(0, 8)) + '</h1><p>' + escapeHtml(projectName(session.cwd, session.project_slug)) + ' <span class=\"muted\" style=\"font-size:12px\">' + escapeHtml(session.cwd || '') + '</span></p></div>',
     '  <button id="back-button">Back</button>',
     '</div>',
     '<div class="card-grid">',
     cardHtml('Session ID', session.session_id),
-    cardHtml('Project', shortProject(session.project_slug)),
+    cardHtml('Project', projectName(session.cwd, session.project_slug)),
     cardHtml('Status', statusBadge(session.status)),
     cardHtml('Duration', sessionDuration(session.started_at, session.last_seen_at)),
     '</div>',
