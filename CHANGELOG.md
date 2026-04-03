@@ -13,6 +13,11 @@ All notable changes to this project will be documented in this file.
   - `docker compose up` for one-click local development
 - Docker deployment: multi-stage Dockerfile (Node 20 alpine) + docker-compose.yml
 - `.env.example` for environment configuration
+- Bridge Phase 4: Daemon API exposes MCP data (GET /notes, sessions include task/files)
+- Skill commands: `/notes` and `/session-detail` for unified MCP+Daemon data
+- Daily work summary: `GET /api/daily-summary?date=YYYY-MM-DD` with dashboard page
+- Token cost estimation: `GET /api/usage/cost?days=N` with model pricing (Opus/Sonnet/Haiku)
+- Dashboard usage page shows estimated dollar cost alongside token counts
 
 ### Fixed
 - Sync datetime format mismatch: daemon stored space-separated timestamps while watermark used ISO 'T' format, causing sessions to never re-sync after initial upload. Fixed with `datetime()` SQL comparison and normalized watermark storage.
