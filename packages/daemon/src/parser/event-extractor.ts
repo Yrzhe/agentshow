@@ -25,6 +25,9 @@ export function extractEvents(events: ConversationEvent[]): ExtractedEvent[] {
     }
 
     if (event.type === 'user') {
+      if (isToolResultMessage(event)) {
+        return []
+      }
       return [extractUserEvent(event)]
     }
 
@@ -153,6 +156,16 @@ function getToolNames(content: unknown): string | null {
 
 function isAttachmentBlock(value: unknown): boolean {
   return isRecord(value) && typeof value.type === 'string' && value.type !== 'text'
+}
+
+function isToolResultMessage(event: ConversationEvent): boolean {
+  const content = getEventContent(event)
+  if (!Array.isArray(content)) {
+    return false
+  }
+  return content.length > 0 && content.every(
+    (item) => isRecord(item) && item.type === 'tool_result',
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
