@@ -94,6 +94,22 @@ describe('sync queries', () => {
     ])
   })
 
+  it('compares mixed timestamp formats correctly for session sync watermarks', () => {
+    const db = createDb()
+    upsertDaemonSession(db, createSession({
+      session_id: 'ses_1',
+      last_seen_at: '2026-04-03 16:36:55',
+    }))
+    upsertDaemonSession(db, createSession({
+      session_id: 'ses_2',
+      last_seen_at: '2026-04-03 12:00:00',
+    }))
+
+    expect(getSessionsModifiedSince(db, '2026-04-03T12:54:37.622Z').map((session) => session.session_id)).toEqual([
+      'ses_1',
+    ])
+  })
+
   it('returns events after a local id with limit', () => {
     const db = createDb()
     upsertDaemonSession(db, createSession())

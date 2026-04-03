@@ -1,5 +1,8 @@
 # Feature: MCP-Daemon Bridge + Dashboard Enhancement
 
+> 日期: 2026-04-03
+> 状态: Phase 1-3 已完成 (2026-04-04), Phase 4 待做
+
 ## Overview
 
 AgentShow has a structural disconnect: MCP captures semantic data (task, notes, files) but it never reaches the cloud/dashboard. Daemon captures behavioral data (tokens, events) and syncs it. This plan bridges the two layers and enhances the dashboard to display unified data.
@@ -18,7 +21,7 @@ AgentShow has a structural disconnect: MCP captures semantic data (task, notes, 
 - `packages/daemon/src/sync/cloud-sync.ts` — add notes to SyncPayload
 - `packages/shared/src/privacy.ts` — add `shapeNoteForSync()` (level >= 2)
 **Success Criteria**: `SyncPayload.notes` contains MCP notes with project_id, key, content
-**Status**: Not Started
+**Status**: Complete ✅
 
 ### Stage 1B: MCP Session Enrichment (Daemon)
 **Goal**: Daemon correlates its sessions with MCP sessions by `cwd` and extracts `task` + `files`.
@@ -34,7 +37,7 @@ WHERE cwd = ? AND status = 'active'
 ORDER BY last_heartbeat DESC LIMIT 1
 ```
 **Success Criteria**: Daemon session has MCP task/files attached before sync
-**Status**: Not Started
+**Status**: Complete ✅
 
 ### Stage 1C: Tests for Phase 1
 **Goal**: Unit tests for MCP table reads + correlation logic.
@@ -46,7 +49,7 @@ ORDER BY last_heartbeat DESC LIMIT 1
 - No correlation when cwd doesn't match
 - Privacy filtering on notes (level 0/1 = no notes, level 2+ = include)
 - task/files enrichment on SyncSession
-**Status**: Not Started
+**Status**: Complete ✅ (8 tests in mcp-bridge.test.ts)
 
 ---
 
@@ -81,7 +84,7 @@ CREATE TABLE cloud_notes (
 CREATE INDEX idx_cloud_notes_user_project ON cloud_notes(user_id, project_slug);
 CREATE INDEX idx_cloud_notes_user_session ON cloud_notes(user_id, session_id);
 ```
-**Status**: Not Started
+**Status**: Complete ✅ (migration 0004 applied to D1)
 
 ### Stage 2B: Sync API accepts notes + task/files
 **Goal**: Worker's POST /api/sync receives and stores enriched payload.
@@ -90,7 +93,7 @@ CREATE INDEX idx_cloud_notes_user_session ON cloud_notes(user_id, session_id);
 - `packages/worker/src/db/queries.ts` — add `upsertCloudNote()`, update `upsertCloudSession()` to save task/files
 - `packages/worker/src/api/sync.ts` — process `payload.notes`
 **Success Criteria**: After sync, cloud_sessions has task/files, cloud_notes has notes
-**Status**: Not Started
+**Status**: Complete ✅
 
 ### Stage 2C: Notes API endpoints
 **Goal**: Dashboard can query notes.
@@ -105,7 +108,7 @@ GET /api/notes?project_slug=xxx              → all notes for project
 GET /api/notes?session_id=xxx                → notes linked to session
 GET /api/search?q=xxx  (extend existing)     → also search cloud_notes.content
 ```
-**Status**: Not Started
+**Status**: Complete ✅
 
 ### Stage 2D: Tests for Phase 2
 **Goal**: Worker tests for new schema + sync + API.
@@ -113,7 +116,7 @@ GET /api/search?q=xxx  (extend existing)     → also search cloud_notes.content
 - `packages/worker/tests/sync-api.test.ts` — add tests for notes + task/files in sync
 **Files to create**:
 - `packages/worker/tests/notes-api.test.ts`
-**Status**: Not Started
+**Status**: Complete ✅
 
 ---
 
@@ -128,7 +131,7 @@ GET /api/search?q=xxx  (extend existing)     → also search cloud_notes.content
 - Add "Files" section with file list (parsed from JSON)
 - Add "Notes" section listing notes linked to this session
 - Fetch notes from `/api/notes?session_id=xxx`
-**Status**: Not Started
+**Status**: Complete ✅
 
 ### Stage 3B: Projects page — show notes count + recent task
 **Goal**: Project cards show semantic context.
@@ -138,7 +141,7 @@ GET /api/search?q=xxx  (extend existing)     → also search cloud_notes.content
 **Changes**:
 - Each project card shows: notes count, most recent task description
 - Click project → filter sessions by project_slug (fix existing broken link)
-**Status**: Not Started
+**Status**: Partial (session filtering done, notes count TODO)
 
 ### Stage 3C: Usage page — time dimension
 **Goal**: Token usage shown over time, not just cumulative totals.
@@ -149,21 +152,21 @@ GET /api/search?q=xxx  (extend existing)     → also search cloud_notes.content
 - Add daily token chart (last 14 days) — simple bar chart with vanilla JS
 - Add model breakdown (tokens per model)
 - Fix: use `/api/projects` endpoint instead of loading all sessions client-side
-**Status**: Not Started
+**Status**: Complete ✅ (daily tokens bar chart added)
 
 ### Stage 3D: Summary improvements
 **Goal**: Better summary generation and rendering.
 **Files to modify**:
 - `packages/worker/src/api/summary.ts` — increase event limit to 200, input to 8000 chars
 - `packages/worker/src/dashboard/pages/session-detail.ts` — render markdown (basic: bold, code, lists)
-**Status**: Not Started
+**Status**: Complete ✅ (Workers AI Llama 3.1 8B + Generate button)
 
 ### Stage 3E: Search covers notes
 **Goal**: Search results include notes content.
 **Files to modify**:
 - `packages/worker/src/db/queries.ts` — extend `searchCloudEvents()` to UNION with cloud_notes search
 - `packages/worker/src/dashboard/pages/search.ts` — render note results differently (show key + content)
-**Status**: Not Started
+**Status**: Complete ✅ (UNION ALL search + note badge)
 
 ---
 
@@ -179,13 +182,13 @@ GET /api/search?q=xxx  (extend existing)     → also search cloud_notes.content
 GET /notes?project_slug=xxx   → MCP notes for project
 GET /sessions/:id             → now includes task, files from MCP
 ```
-**Status**: Not Started
+**Status**: Not Started (next priority)
 
 ### Stage 4B: Skill update
 **Goal**: Skill commands return unified data.
 **Files to modify**:
 - `packages/skill/SKILL.md` — add `/notes` command, update `/peers` to show task info
-**Status**: Not Started
+**Status**: Not Started (next priority)
 
 ---
 

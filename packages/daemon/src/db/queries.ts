@@ -148,7 +148,7 @@ export function getSessionsModifiedSince(
       `
         SELECT *
         FROM daemon_sessions
-        WHERE ? = '' OR last_seen_at > ?
+        WHERE ? = '' OR datetime(last_seen_at) > datetime(?)
         ORDER BY last_seen_at ASC
       `,
     )

@@ -161,7 +161,7 @@ describe('CloudSync', () => {
 
     await new CloudSync(db, configDir).tick()
 
-    expect(getSyncState(db, 'last_synced_session_at')).toBe('2026-04-03T02:00:00.000Z')
+    expect(getSyncState(db, 'last_synced_session_at')).toBe('2026-04-03 02:00:00')
     expect(getSyncState(db, 'last_synced_event_id')).toBe('1')
     expect(getSyncState(db, 'last_sync_error')).toBe('')
     expect(getSyncState(db, 'backoff_until')).toBe('')

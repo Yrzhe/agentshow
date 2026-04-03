@@ -1,6 +1,6 @@
 # AgentShow — 产品路线图
 
-> 更新: 2026-04-03
+> 更新: 2026-04-04
 > 定位: Agent 工作的可见性层 — 从监控到洞察到行动
 
 ---
@@ -33,30 +33,45 @@
 - [x] 工具调用 badge 展示
 - [x] 自部署文档
 
----
+### Step 3.5: MCP-Daemon Bridge ✅
+- [x] Daemon 读取 MCP notes 表，通过 cloud sync 上传笔记
+- [x] Session 通过 cwd 关联 MCP session，附带 task/files
+- [x] cloud_notes D1 表 + upsert 语义（migration 0004）
+- [x] Notes API: GET /api/notes?project_slug=&session_id=
+- [x] Usage daily API: GET /api/usage/daily?days=N
+- [x] 隐私过滤：shapeNoteForSync() (level >= 2)
+- [x] hasMcpTable() 优雅降级
+- [x] 8 个 bridge 测试通过
 
-## 待做
-
-### Step 4: Session 摘要 & 搜索 ⭐ 最高优先级
+### Step 4: Session 摘要 & 搜索 ✅ (部分完成)
 
 **为什么**: 监控 ≠ 价值。用户不需要看 agent 在干什么（已经知道），需要干完之后的总结和找回。
 
-#### 4a: 自动 Session 摘要
-- [ ] Session 结束时自动生成摘要（用 AI 总结对话内容）
-- [ ] 摘要存到 cloud_sessions 的 summary 字段
-- [ ] Dashboard 上 session 列表显示摘要预览
-- [ ] 可在 Daemon 本地生成（调 Claude API）或 Worker 端生成
+#### 4a: Session 摘要 ✅
+- [x] Workers AI (Llama 3.1 8B) 生成 session 摘要
+- [x] 摘要存到 cloud_sessions 的 summary 字段
+- [x] Dashboard session 列表显示摘要预览（截断 80 字符）
+- [x] Dashboard session 详情页 Generate Summary 按钮
 
-#### 4b: 全文搜索
-- [ ] 跨 session 搜索："我在哪个 session 里讨论过 X？"
-- [ ] 搜索 content_preview + tool_name + 摘要
-- [ ] Worker API: GET /api/search?q=keyword
-- [ ] Dashboard 搜索框 + 结果页面
+#### 4b: 全文搜索 ✅
+- [x] 跨 session 搜索 events + notes（UNION ALL with source_type）
+- [x] Worker API: GET /api/search?q=keyword&limit=&offset=
+- [x] Dashboard 搜索页：关键词高亮、分页、note badge
 
 #### 4c: 每日工作总结
 - [ ] 定时任务（或手动触发）：生成"今日 Agent 工作总结"
 - [ ] 按项目分组，列出每个 session 的关键产出
 - [ ] 可以导出为 Markdown 或发送到邮箱
+
+### Dashboard 增强 ✅
+- [x] Session 详情：Task 卡片、Files 列表、关联 Notes、AI 摘要
+- [x] Sessions 列表：summary 列、project 过滤（?project=slug）
+- [x] Usage 页：日 token 柱状图（近 14 天）
+- [x] Search 页：搜索 + 高亮 + note 结果 badge
+
+---
+
+## 待做
 
 ### Step 5: 成本管理
 
@@ -108,16 +123,20 @@
 
 ## 实现优先级 & 工程师分配
 
-### 当前轮次：Step 4 (Session 摘要 & 搜索)
+### 已完成轮次
+- ~~Step 4a + 4b: Session 摘要 & 搜索~~ ✅ (2026-04-04)
+- ~~Step 3.5: MCP-Daemon Bridge~~ ✅ (2026-04-04)
 
-| 任务 | 工程师 | 依赖 | 预估 |
+### 当前轮次：Bridge Phase 4 + Step 4c + Step 5
+
+| 任务 | 优先级 | 依赖 | 预估 |
 |------|--------|------|------|
-| 4b: 全文搜索 API + Dashboard | 工程师 A | 无 | ~400 LOC |
-| 4a: 自动 Session 摘要 | 工程师 B | 无 | ~300 LOC |
-| 4c: 每日工作总结 | 后续 | 4a | ~200 LOC |
-| 5a: Token 成本换算 | 后续 | 无 | ~200 LOC |
+| Bridge 4A: Daemon API 暴露 MCP 数据 | 高 | 无 | ~70 LOC |
+| Bridge 4B: Skill 更新 (/notes, /peers 显示 task) | 高 | 4A | ~20 LOC |
+| 4c: 每日工作总结 | 中 | 4a ✅ | ~200 LOC |
+| 5a: Token 成本换算 | 中 | 无 | ~200 LOC |
 
-**4a 和 4b 可并行。**
+**4A + 4c 可并行。**
 
 ---
 

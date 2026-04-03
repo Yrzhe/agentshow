@@ -129,10 +129,11 @@ export class CloudSync {
     notes: SyncNote[],
   ): void {
     if (sessions.length > 0) {
+      const lastSeenAt = sessions[sessions.length - 1]?.last_seen_at ?? ''
       setSyncState(
         this.db,
         'last_synced_session_at',
-        sessions[sessions.length - 1]?.last_seen_at ?? '',
+        lastSeenAt.replace('T', ' ').replace(/\.\d+Z$/, ''),
       )
     }
 
