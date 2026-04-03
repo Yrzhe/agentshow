@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Self-hosted Node.js server (`@agentshow/server`) as primary deployment target
+  - Hono + @hono/node-server, better-sqlite3 with WAL mode
+  - Auto-migration runner from SQL files
+  - All API routes ported: sync, sessions, projects, search, notes, usage, tokens, auth, summary
+  - Configurable AI summary (Anthropic API / disabled)
+  - `docker compose up` for one-click local development
+- Docker deployment: multi-stage Dockerfile (Node 20 alpine) + docker-compose.yml
+- `.env.example` for environment configuration
+
+### Fixed
+- Sync datetime format mismatch: daemon stored space-separated timestamps while watermark used ISO 'T' format, causing sessions to never re-sync after initial upload. Fixed with `datetime()` SQL comparison and normalized watermark storage.
+
+### Previously Added
 - MCP-Daemon bridge: daemon reads MCP notes/sessions tables and includes semantic data in cloud sync
   - Session enrichment: daemon correlates MCP sessions by `cwd` to attach `task` and `files` to synced sessions
   - Notes sync: MCP shared notes flow through daemon → cloud (privacy level 2+)
