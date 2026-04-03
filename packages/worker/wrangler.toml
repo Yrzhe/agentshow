@@ -1,0 +1,9 @@
+name = "agentshow"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "agentshow"
+database_id = "placeholder"
+migrations_dir = "migrations"
