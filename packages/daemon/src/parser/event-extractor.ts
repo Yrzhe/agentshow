@@ -12,7 +12,7 @@ export interface ExtractedEvent {
   timestamp: string
 }
 
-const RELEVANT_TYPES = new Set(['user', 'assistant', 'system'])
+const RELEVANT_TYPES = new Set(['user', 'assistant'])
 
 export function extractEvents(events: ConversationEvent[]): ExtractedEvent[] {
   return events.flatMap((event) => {
@@ -34,12 +34,13 @@ export function extractEvents(events: ConversationEvent[]): ExtractedEvent[] {
 
 function extractAssistantEvent(event: ConversationEvent): ExtractedEvent {
   const usage = getUsage(event.message?.usage)
+  const content = getEventContent(event)
 
   return {
     ...createBaseEvent(event),
     role: 'assistant',
-    content_preview: getContentPreview(event.message?.content),
-    tool_name: getToolNames(event.message?.content),
+    content_preview: getAssistantPreview(content),
+    tool_name: getToolNames(content),
     input_tokens: usage.input_tokens,
     output_tokens: usage.output_tokens,
     model: event.message?.model ?? null,
@@ -50,7 +51,7 @@ function extractUserEvent(event: ConversationEvent): ExtractedEvent {
   return {
     ...createBaseEvent(event),
     role: 'user',
-    content_preview: getContentPreview(event.message?.content),
+    content_preview: getUserPreview(getEventContent(event)),
   }
 }
 
@@ -75,27 +76,63 @@ function getUsage(usage: TokenUsage | undefined): TokenUsage {
   }
 }
 
-function getContentPreview(content: unknown): string | null {
-  const text = getFirstTextContent(content)
+function getEventContent(event: ConversationEvent): unknown {
+  if (event.message?.content !== undefined) {
+    return event.message.content
+  }
+
+  const eventRecord = event as Record<string, unknown>
+  return eventRecord.content
+}
+
+function getAssistantPreview(content: unknown): string | null {
+  const text = getCombinedTextContent(content)
   return text ? text.slice(0, 200) : null
 }
 
-function getFirstTextContent(content: unknown): string | null {
+function getUserPreview(content: unknown): string {
+  const text = getCombinedTextContent(content)
+  if (text) {
+    return text.slice(0, 200)
+  }
+
+  if (Array.isArray(content) && content.some((item) => isAttachmentBlock(item))) {
+    return '(attachment)'
+  }
+
+  if (content === null || content === undefined) {
+    return '(no content)'
+  }
+
+  if (isRecord(content) && typeof content.type === 'string' && content.type === 'image') {
+    return '(image)'
+  }
+
+  if (isRecord(content) && typeof content.text !== 'string') {
+    return '(attachment)'
+  }
+
+  return '(no content)'
+}
+
+function getCombinedTextContent(content: unknown): string | null {
   if (typeof content === 'string') {
     return content
+  }
+
+  if (isRecord(content) && typeof content.text === 'string') {
+    return content.text
   }
 
   if (!Array.isArray(content)) {
     return null
   }
 
-  for (const item of content) {
-    if (isRecord(item) && item.type === 'text' && typeof item.text === 'string') {
-      return item.text
-    }
-  }
+  const texts = content.flatMap((item) =>
+    isRecord(item) && item.type === 'text' && typeof item.text === 'string' ? [item.text] : [],
+  )
 
-  return null
+  return texts.length > 0 ? texts.join(' ') : null
 }
 
 function getToolNames(content: unknown): string | null {
@@ -112,6 +149,10 @@ function getToolNames(content: unknown): string | null {
   })
 
   return names.length > 0 ? names.join(',') : null
+}
+
+function isAttachmentBlock(value: unknown): boolean {
+  return isRecord(value) && typeof value.type === 'string' && value.type !== 'text'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -26,6 +26,21 @@ describe('extractEvents', () => {
     })
   })
 
+  it('concatenates assistant text blocks', () => {
+    const [event] = extractEvents([{
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'text', text: '让我检查一下' },
+          { type: 'tool_use', name: 'Bash' },
+          { type: 'text', text: '然后读取文件' },
+        ],
+      },
+    }])
+
+    expect(event?.content_preview).toBe('让我检查一下 然后读取文件')
+  })
+
   it('extracts tool names from assistant content', () => {
     const [event] = extractEvents([{
       type: 'assistant',
@@ -87,24 +102,56 @@ describe('extractEvents', () => {
     })
   })
 
-  it('returns null role and payload fields for non user assistant events', () => {
+  it('extracts user content from multiple text blocks', () => {
     const [event] = extractEvents([{
-      type: 'permission-mode',
-      sessionId: 's1',
-      timestamp: '2026-04-02T15:49:20.000Z',
+      type: 'user',
+      message: {
+        content: [
+          { type: 'text', text: 'hello' },
+          { type: 'image', source: { type: 'base64' } },
+          { type: 'text', text: 'world' },
+        ],
+      },
     }])
 
-    expect(event).toEqual({
-      session_id: 's1',
-      type: 'permission-mode',
-      role: null,
-      content_preview: null,
-      tool_name: null,
-      input_tokens: 0,
-      output_tokens: 0,
-      model: null,
-      timestamp: '2026-04-02T15:49:20.000Z',
-    })
+    expect(event?.content_preview).toBe('hello world')
+  })
+
+  it('returns no content placeholder for empty user payloads', () => {
+    const [event] = extractEvents([{
+      type: 'user',
+      message: {
+        content: null,
+      },
+    }])
+
+    expect(event?.content_preview).toBe('(no content)')
+  })
+
+  it('returns attachment placeholder for image-only user payloads', () => {
+    const [event] = extractEvents([{
+      type: 'user',
+      message: {
+        content: [
+          { type: 'image', source: { type: 'base64' } },
+        ],
+      },
+    }])
+
+    expect(event?.content_preview).toBe('(attachment)')
+  })
+
+  it('supports user object content with text field outside message arrays', () => {
+    const [event] = extractEvents([{
+      type: 'user',
+      message: {
+        content: {
+          text: 'object text payload',
+        },
+      },
+    }])
+
+    expect(event?.content_preview).toBe('object text payload')
   })
 
   it('uses defaults for missing fields', () => {
@@ -142,9 +189,11 @@ describe('extractEvents', () => {
     expect(extractEvents([])).toEqual([])
   })
 
-  it('skips events without type', () => {
+  it('skips non-relevant event types and events without type', () => {
     const events = extractEvents([
       { type: 'user', message: { content: 'hello' } },
+      { type: 'system', message: { content: 'reminder' } },
+      { type: 'permission-mode' } as never,
       { type: '' } as never,
     ])
 
