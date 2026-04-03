@@ -7,3 +7,6 @@ binding = "DB"
 database_name = "agentshow"
 database_id = "a4b370d2-d586-4dae-9e8e-73d8a05f1c6a"
 migrations_dir = "migrations"
+
+[ai]
+binding = "AI"

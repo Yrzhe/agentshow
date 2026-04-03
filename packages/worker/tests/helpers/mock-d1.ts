@@ -22,6 +22,9 @@ type CloudSessionRow = {
   total_output_tokens: number
   tool_calls: number
   synced_at: string
+  summary?: string | null
+  task?: string | null
+  files?: string | null
 }
 
 type CloudEventRow = {
@@ -40,6 +43,20 @@ type CloudEventRow = {
   synced_at: string
 }
 
+type CloudNoteRow = {
+  id: number
+  user_id: string
+  device_id: string
+  project_id: string
+  project_slug: string | null
+  key: string
+  content: string
+  session_id: string | null
+  created_at: string
+  updated_at: string
+  synced_at: string
+}
+
 type WatermarkRow = {
   user_id: string
   device_id: string
@@ -52,8 +69,10 @@ export class MockD1Database {
   private readonly apiTokens: ApiTokenRow[] = []
   private readonly cloudSessions: CloudSessionRow[] = []
   private readonly cloudEvents: CloudEventRow[] = []
+  private readonly cloudNotes: CloudNoteRow[] = []
   private readonly syncWatermarks: WatermarkRow[] = []
   private nextEventId = 1
+  private nextNoteId = 1
 
   prepare(sql: string): MockD1Statement {
     return new MockD1Statement(this, sql)
@@ -89,7 +108,7 @@ export class MockD1Database {
       return {}
     }
     if (normalized.startsWith('INSERT OR REPLACE INTO cloud_sessions')) {
-      const [session_id, user_id, device_id, pid, cwd, project_slug, status, started_at, last_seen_at, message_count, total_input_tokens, total_output_tokens, tool_calls] = params
+      const [session_id, user_id, device_id, pid, cwd, project_slug, status, started_at, last_seen_at, message_count, total_input_tokens, total_output_tokens, tool_calls, task, files] = params
       const nextRow: CloudSessionRow = {
         session_id: String(session_id),
         user_id: String(user_id),
@@ -105,6 +124,9 @@ export class MockD1Database {
         total_output_tokens: Number(total_output_tokens),
         tool_calls: Number(tool_calls),
         synced_at: now(),
+        summary: null,
+        task: task != null ? String(task) : null,
+        files: files != null ? String(files) : null,
       }
       replaceByKey(this.cloudSessions, nextRow, (row) => row.user_id === nextRow.user_id && row.session_id === nextRow.session_id)
       return {}
@@ -159,6 +181,13 @@ export class MockD1Database {
           })),
       }
     }
+    if (normalized.startsWith('UPDATE cloud_sessions SET summary = ? WHERE session_id = ? AND user_id = ?')) {
+      const row = this.cloudSessions.find((session) => session.session_id === params[1] && session.user_id === params[2])
+      if (row) {
+        row.summary = String(params[0])
+      }
+      return {}
+    }
     if (normalized.startsWith('SELECT project_slug,')) {
       return { results: buildProjects(this.cloudSessions, String(params[0])) }
     }
@@ -176,6 +205,116 @@ export class MockD1Database {
       }
       replaceByKey(this.syncWatermarks, nextRow, (row) => row.user_id === nextRow.user_id && row.device_id === nextRow.device_id)
       return {}
+    }
+    if (normalized.startsWith('INSERT OR REPLACE INTO cloud_notes')) {
+      const [user_id, device_id, project_id, project_slug, key, content, session_id, created_at, updated_at] = params
+      const nextRow: CloudNoteRow = {
+        id: this.nextNoteId++,
+        user_id: String(user_id),
+        device_id: String(device_id),
+        project_id: String(project_id),
+        project_slug: project_slug != null ? String(project_slug) : null,
+        key: String(key),
+        content: String(content),
+        session_id: session_id != null ? String(session_id) : null,
+        created_at: String(created_at),
+        updated_at: String(updated_at),
+        synced_at: now(),
+      }
+      replaceByKey(this.cloudNotes, nextRow, (row) => row.user_id === nextRow.user_id && row.project_id === nextRow.project_id && row.key === nextRow.key)
+      return {}
+    }
+    if (normalized.startsWith('SELECT * FROM cloud_notes WHERE')) {
+      let filtered = this.cloudNotes.filter((row) => row.user_id === String(params[0]))
+      let cursor = 1
+      if (normalized.includes('project_slug = ?')) {
+        filtered = filtered.filter((row) => row.project_slug === String(params[cursor]))
+        cursor++
+      }
+      if (normalized.includes('session_id = ?')) {
+        filtered = filtered.filter((row) => row.session_id === String(params[cursor]))
+        cursor++
+      }
+      const limit = Number(params[cursor] ?? 50)
+      return {
+        results: filtered
+          .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+          .slice(0, limit),
+      }
+    }
+    if (normalized.includes('date(started_at) AS date')) {
+      // getTokensByDay mock: return empty array for now
+      return { results: [] }
+    }
+    if (normalized.includes('SELECT (')) {
+      // searchCloudEvents count with UNION — return simplified count
+      const query = String(params[1])
+      const eventCount = this.cloudEvents.filter((e) =>
+        (e.content_preview && e.content_preview.includes(query)) ||
+        (e.tool_name && e.tool_name.includes(query)),
+      ).length
+      const noteCount = this.cloudNotes.filter((n) =>
+        n.user_id === String(params[5]) &&
+        (n.key.includes(String(params[6])) || n.content.includes(String(params[7]))),
+      ).length
+      return { total: eventCount + noteCount }
+    }
+    if (normalized.includes('SELECT * FROM (')) {
+      // searchCloudEvents UNION ALL query
+      const userId = String(params[0])
+      const query = String(params[1])
+      const limit = Number(params[params.length - 2])
+      const offset = Number(params[params.length - 1])
+      const eventResults = this.cloudEvents
+        .filter((e) => e.user_id === userId)
+        .filter((e) =>
+          (e.content_preview && e.content_preview.includes(query)) ||
+          (e.tool_name && e.tool_name.includes(query)),
+        )
+        .map((e) => {
+          const session = this.cloudSessions.find((s) => s.session_id === e.session_id && s.user_id === e.user_id)
+          return {
+            local_id: e.local_id,
+            session_id: e.session_id,
+            type: e.type,
+            role: e.role,
+            content_preview: e.content_preview,
+            tool_name: e.tool_name,
+            model: e.model,
+            timestamp: e.timestamp,
+            input_tokens: e.input_tokens,
+            output_tokens: e.output_tokens,
+            cwd: session?.cwd ?? '',
+            project_slug: session?.project_slug ?? '',
+            session_status: session?.status ?? '',
+            source_type: 'event' as const,
+          }
+        })
+      const noteUserId = String(params[5])
+      const noteQuery = String(params[6])
+      const noteResults = this.cloudNotes
+        .filter((n) => n.user_id === noteUserId)
+        .filter((n) => n.key.includes(noteQuery) || n.content.includes(noteQuery))
+        .map((n) => ({
+          local_id: n.id,
+          session_id: n.session_id ?? '',
+          type: 'note' as const,
+          role: null,
+          content_preview: n.content,
+          tool_name: n.key,
+          model: null,
+          timestamp: n.updated_at,
+          input_tokens: 0,
+          output_tokens: 0,
+          cwd: '',
+          project_slug: n.project_slug ?? n.project_id,
+          session_status: '',
+          source_type: 'note' as const,
+        }))
+      const combined = [...eventResults, ...noteResults]
+        .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+        .slice(offset, offset + limit)
+      return { results: combined }
     }
 
     throw new Error(`Unhandled SQL in mock D1: ${normalized}`)

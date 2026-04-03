@@ -8,6 +8,21 @@ type SessionStats = Pick<
 type SessionEventInsert = Omit<MessageRecord, 'id'>
 type SessionEventQueryOptions = { limit?: number }
 
+type McpNote = {
+  project_id: string
+  key: string
+  content: string
+  session_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+type McpSessionInfo = {
+  id: string
+  task: string | null
+  files: string | null
+}
+
 export function upsertDaemonSession(db: Database.Database, session: DaemonSession): void {
   db.prepare(
     `
@@ -193,4 +208,60 @@ export function getSessionStats(db: Database.Database, sessionId: string): Sessi
     total_output_tokens: 0,
     tool_calls: 0,
   }
+}
+
+// ============================================================
+// MCP Bridge Queries (read from MCP's tables in the same DB)
+// ============================================================
+
+export function getMcpNotes(db: Database.Database): McpNote[] {
+  if (!hasMcpTable(db, 'notes')) {
+    return []
+  }
+  return db
+    .prepare(
+      'SELECT project_id, key, content, session_id, created_at, updated_at FROM notes ORDER BY updated_at ASC',
+    )
+    .all() as McpNote[]
+}
+
+export function getMcpNotesModifiedSince(db: Database.Database, since: string): McpNote[] {
+  if (!hasMcpTable(db, 'notes')) {
+    return []
+  }
+  if (since === '') {
+    return db
+      .prepare(
+        'SELECT project_id, key, content, session_id, created_at, updated_at FROM notes ORDER BY updated_at ASC',
+      )
+      .all() as McpNote[]
+  }
+  return db
+    .prepare(
+      'SELECT project_id, key, content, session_id, created_at, updated_at FROM notes WHERE datetime(updated_at) > datetime(?) ORDER BY updated_at ASC',
+    )
+    .all(since) as McpNote[]
+}
+
+export function getMcpSessionByCwd(db: Database.Database, cwd: string): McpSessionInfo | null {
+  if (!hasMcpTable(db, 'sessions')) {
+    return null
+  }
+  const row = db
+    .prepare(
+      `
+        SELECT id, task, files FROM sessions
+        WHERE cwd = ? AND status = 'active'
+        ORDER BY last_heartbeat DESC LIMIT 1
+      `,
+    )
+    .get(cwd) as McpSessionInfo | undefined
+  return row ?? null
+}
+
+function hasMcpTable(db: Database.Database, tableName: string): boolean {
+  const row = db
+    .prepare("SELECT COUNT(*) as cnt FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName) as { cnt: number }
+  return row.cnt > 0
 }

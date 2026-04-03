@@ -1,4 +1,13 @@
-import type { CloudProject, CloudSession, CloudSessionStatus, SyncEvent, SyncSession } from '../types.js'
+import type {
+  CloudNote,
+  CloudProject,
+  CloudSession,
+  CloudSessionStatus,
+  SearchResult,
+  SyncEvent,
+  SyncNote,
+  SyncSession,
+} from '../types.js'
 
 type SessionQueryOptions = {
   status?: CloudSessionStatus
@@ -30,8 +39,8 @@ export async function upsertCloudSession(
       INSERT OR REPLACE INTO cloud_sessions (
         session_id, user_id, device_id, pid, cwd, project_slug, status,
         started_at, last_seen_at, message_count, total_input_tokens,
-        total_output_tokens, tool_calls, synced_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        total_output_tokens, tool_calls, task, files, synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `,
   ).bind(
     session.session_id,
@@ -47,6 +56,8 @@ export async function upsertCloudSession(
     session.total_input_tokens,
     session.total_output_tokens,
     session.tool_calls,
+    session.task ?? null,
+    session.files ?? null,
   ).run()
 }
 
@@ -112,6 +123,17 @@ export async function getCloudSessionStats(
     tool_calls: 0,
     message_count: 0,
   }
+}
+
+export async function updateSessionSummary(
+  db: D1Database,
+  userId: string,
+  sessionId: string,
+  summary: string,
+): Promise<void> {
+  await db.prepare(
+    'UPDATE cloud_sessions SET summary = ? WHERE session_id = ? AND user_id = ?',
+  ).bind(summary, sessionId, userId).run()
 }
 
 export async function insertCloudEvents(
@@ -221,4 +243,146 @@ export async function updateWatermark(
       ) VALUES (?, ?, ?, ?, datetime('now'))
     `,
   ).bind(userId, deviceId, sessionSeenAt, eventLocalId).run()
+}
+
+export async function searchCloudEvents(
+  db: D1Database,
+  userId: string,
+  query: string,
+  opts: { limit: number; offset: number },
+): Promise<{ results: SearchResult[]; total: number }> {
+  const countRow = await db.prepare(
+    `
+      SELECT (
+        (SELECT COUNT(*) FROM cloud_events e
+         JOIN cloud_sessions s ON s.session_id = e.session_id AND s.user_id = e.user_id
+         WHERE e.user_id = ?
+           AND (
+             e.content_preview LIKE '%' || ? || '%'
+             OR e.tool_name LIKE '%' || ? || '%'
+             OR s.cwd LIKE '%' || ? || '%'
+             OR s.project_slug LIKE '%' || ? || '%'
+           ))
+        +
+        (SELECT COUNT(*) FROM cloud_notes
+         WHERE user_id = ?
+           AND (key LIKE '%' || ? || '%' OR content LIKE '%' || ? || '%'))
+      ) AS total
+    `,
+  ).bind(userId, query, query, query, query, userId, query, query).first<{ total: number }>()
+
+  const { results } = await db.prepare(
+    `
+      SELECT * FROM (
+        SELECT
+          e.local_id,
+          e.session_id,
+          e.type,
+          e.role,
+          e.content_preview,
+          e.tool_name,
+          e.model,
+          e.timestamp,
+          e.input_tokens,
+          e.output_tokens,
+          s.cwd,
+          s.project_slug,
+          s.status AS session_status,
+          'event' AS source_type
+        FROM cloud_events e
+        JOIN cloud_sessions s ON s.session_id = e.session_id AND s.user_id = e.user_id
+        WHERE e.user_id = ?
+          AND (
+            e.content_preview LIKE '%' || ? || '%'
+            OR e.tool_name LIKE '%' || ? || '%'
+            OR s.cwd LIKE '%' || ? || '%'
+            OR s.project_slug LIKE '%' || ? || '%'
+          )
+
+        UNION ALL
+
+        SELECT
+          n.id AS local_id,
+          COALESCE(n.session_id, '') AS session_id,
+          'note' AS type,
+          NULL AS role,
+          n.content AS content_preview,
+          n.key AS tool_name,
+          NULL AS model,
+          n.updated_at AS timestamp,
+          0 AS input_tokens,
+          0 AS output_tokens,
+          '' AS cwd,
+          COALESCE(n.project_slug, n.project_id) AS project_slug,
+          '' AS session_status,
+          'note' AS source_type
+        FROM cloud_notes n
+        WHERE n.user_id = ?
+          AND (n.key LIKE '%' || ? || '%' OR n.content LIKE '%' || ? || '%')
+      )
+      ORDER BY timestamp DESC
+      LIMIT ? OFFSET ?
+    `,
+  ).bind(
+    userId, query, query, query, query,
+    userId, query, query,
+    opts.limit, opts.offset,
+  ).all<SearchResult>()
+
+  return {
+    results: results ?? [],
+    total: Number(countRow?.total ?? 0),
+  }
+}
+
+export async function upsertCloudNote(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  note: SyncNote,
+  projectSlug: string | null,
+): Promise<void> {
+  await db.prepare(`
+    INSERT OR REPLACE INTO cloud_notes (
+      user_id, device_id, project_id, project_slug, key, content,
+      session_id, created_at, updated_at, synced_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).bind(
+    userId, deviceId, note.project_id, projectSlug, note.key, note.content,
+    note.session_id, note.created_at, note.updated_at,
+  ).run()
+}
+
+export async function getCloudNotes(
+  db: D1Database,
+  userId: string,
+  opts: { project_slug?: string | null | undefined; session_id?: string | null | undefined; limit?: number },
+): Promise<CloudNote[]> {
+  const conditions = ['user_id = ?']
+  const values: Array<string | number> = [userId]
+  if (opts.project_slug) { conditions.push('project_slug = ?'); values.push(opts.project_slug) }
+  if (opts.session_id) { conditions.push('session_id = ?'); values.push(opts.session_id) }
+  const { results } = await db.prepare(`
+    SELECT * FROM cloud_notes WHERE ${conditions.join(' AND ')}
+    ORDER BY updated_at DESC LIMIT ?
+  `).bind(...values, opts.limit ?? 50).all<CloudNote>()
+  return results ?? []
+}
+
+export async function getTokensByDay(
+  db: D1Database,
+  userId: string,
+  days: number = 14,
+): Promise<Array<{ date: string; input_tokens: number; output_tokens: number }>> {
+  const { results } = await db.prepare(`
+    SELECT
+      date(started_at) AS date,
+      SUM(total_input_tokens) AS input_tokens,
+      SUM(total_output_tokens) AS output_tokens
+    FROM cloud_sessions
+    WHERE user_id = ? AND started_at >= datetime('now', '-' || ? || ' days')
+    GROUP BY date(started_at)
+    ORDER BY date ASC
+  `).bind(userId, days).all()
+  return (results ?? []) as Array<{ date: string; input_tokens: number; output_tokens: number }>
 }

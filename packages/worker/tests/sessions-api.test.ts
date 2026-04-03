@@ -31,6 +31,27 @@ describe('worker sessions api', () => {
       expect.objectContaining({ project_slug: '-tmp-project', total_sessions: 2 }),
     ])
   })
+
+  it('generates and stores a session summary', async () => {
+    const db = await createSeededDb()
+    const response = await app.request(
+      '/api/sessions/ses_active/summary',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer as_token',
+        },
+      },
+      env(db),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ summary: 'Session summary.' })
+    expect(db.listSessions()).toEqual([
+      expect.objectContaining({ session_id: 'ses_active', summary: 'Session summary.' }),
+      expect.objectContaining({ session_id: 'ses_ended' }),
+    ])
+  })
 })
 
 async function createSeededDb(): Promise<MockD1Database> {
@@ -114,6 +135,9 @@ function authInit(token: string): RequestInit {
 function env(DB: MockD1Database) {
   return {
     DB: DB as unknown as D1Database,
+    AI: {
+      run: async () => ({ response: 'Session summary.' }),
+    } as unknown as Ai,
     GITHUB_CLIENT_ID: '',
     GITHUB_CLIENT_SECRET: '',
     JWT_SECRET: 'secret',

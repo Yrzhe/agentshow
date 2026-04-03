@@ -13,6 +13,17 @@ export interface SyncSession {
   total_output_tokens: number
   tool_calls: number
   conversation_path?: string | null
+  task?: string | null
+  files?: string | null
+}
+
+export interface SyncNote {
+  project_id: string
+  key: string
+  content: string
+  session_id: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface SyncEvent {
@@ -43,6 +54,22 @@ export interface CloudSession {
   total_output_tokens: number
   tool_calls: number
   synced_at: string
+  summary?: string | null
+  task?: string | null
+  files?: string | null
+}
+
+export interface CloudNote {
+  id: number
+  user_id: string
+  project_id: string
+  project_slug: string | null
+  key: string
+  content: string
+  session_id: string | null
+  created_at: string
+  updated_at: string
+  synced_at: string
 }
 
 export interface CloudProject {
@@ -69,4 +96,21 @@ export interface CurrentUser {
   email: string | null
   github_login: string | null
   github_avatar_url: string | null
+}
+
+export interface SearchResult {
+  local_id: number
+  session_id: string
+  type: string
+  role: string | null
+  content_preview: string | null
+  tool_name: string | null
+  model: string | null
+  timestamp: string
+  input_tokens: number
+  output_tokens: number
+  cwd: string
+  project_slug: string
+  session_status: string
+  source_type: 'event' | 'note'
 }

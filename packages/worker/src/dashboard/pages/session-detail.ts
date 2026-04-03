@@ -27,6 +27,18 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
     cardHtml('Status', statusBadge(session.status)),
     cardHtml('Duration', sessionDuration(session.started_at, session.last_seen_at)),
     '</div>',
+    (session.task ? '<div class="card" style="margin-bottom:1rem;"><div class="card-label">Task</div><div style="line-height:1.6;white-space:pre-wrap;">' + escapeHtml(session.task) + '</div></div>' : ''),
+    (session.files ? '<div class="card" style="margin-bottom:1rem;"><div class="card-label">Files</div><ul id="files-list" style="margin:0;padding-left:1.2rem;line-height:1.8;">' + (function () { try { return JSON.parse(session.files).map(function (f) { return '<li style="font-family:monospace;font-size:0.85rem;">' + escapeHtml(f) + '</li>' }).join('') } catch(e) { return '<li>' + escapeHtml(session.files) + '</li>' } })() + '</ul></div>' : ''),
+    '<div id="notes-section"></div>',
+    '<div class="card" style="margin-bottom:1rem;">',
+    '  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">',
+    '    <div class="card-label">Summary</div>',
+    session.summary
+      ? ''
+      : '    <button id="gen-summary-btn" style="padding:4px 12px;background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;cursor:pointer;font-size:12px">Generate Summary</button>',
+    '  </div>',
+    '  <div id="summary-content" style="line-height:1.6;">' + (session.summary ? escapeHtml(session.summary) : '<span class=\"muted\">No summary</span>') + '</div>',
+    '</div>',
     '<div class="card" style="margin-bottom:1rem;">',
     '  <div class="card-label">Token Usage</div>',
     '  <div class="card-value">' + escapeHtml(formatNumber(totalTokens)) + ' total</div>',
@@ -45,6 +57,30 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
   page.querySelector('#back-button').addEventListener('click', function () {
     history.back()
   })
+
+  var genBtn = page.querySelector('#gen-summary-btn')
+  if (genBtn) {
+    genBtn.addEventListener('click', async function () {
+      genBtn.textContent = 'Generating...'
+      genBtn.disabled = true
+      try {
+        var res = await fetch('/api/sessions/' + encodeURIComponent(session.session_id) + '/summary', {
+          method: 'POST', credentials: 'include'
+        })
+        var data = await res.json()
+        if (res.ok && data.summary) {
+          page.querySelector('#summary-content').textContent = data.summary
+          genBtn.style.display = 'none'
+        } else {
+          genBtn.textContent = data.error || 'Failed'
+          genBtn.disabled = false
+        }
+      } catch (err) {
+        genBtn.textContent = 'Error'
+        genBtn.disabled = false
+      }
+    })
+  }
 
   const timeline = page.querySelector('#timeline')
   const loadMoreButton = page.querySelector('#load-more-button')
@@ -77,6 +113,28 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
   })
 
   renderTimeline()
+
+  try {
+    var notesData = await api('/notes?session_id=' + encodeURIComponent(session.session_id))
+    var notesList = Array.isArray(notesData.notes) ? notesData.notes : []
+    if (notesList.length > 0) {
+      var notesSection = page.querySelector('#notes-section')
+      var notesHtml = '<div class="card" style="margin-bottom:1rem;">' +
+        '<div class="card-label" style="margin-bottom:0.75rem;">Notes (' + notesList.length + ')</div>' +
+        '<div style="display:grid;gap:0.75rem;">'
+      notesList.forEach(function (note) {
+        notesHtml += '<div style="padding:0.75rem;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;">' +
+          '<div style="font-weight:600;margin-bottom:0.4rem;font-size:0.9rem;">' + escapeHtml(note.key) + '</div>' +
+          '<div style="white-space:pre-wrap;line-height:1.6;font-size:0.85rem;">' + escapeHtml(note.content) + '</div>' +
+          '<div class="meta" style="margin-top:0.4rem;">' + escapeHtml(formatTimestamp(note.updated_at)) + '</div>' +
+          '</div>'
+      })
+      notesHtml += '</div></div>'
+      notesSection.innerHTML = notesHtml
+    }
+  } catch (e) {
+    // notes fetch failed silently
+  }
 
   return page
 }

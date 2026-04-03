@@ -4,13 +4,18 @@ import {
   SYNC_BATCH_SIZE,
   readConfig,
   shapeEventForSync,
+  shapeNoteForSync,
   shapeSessionForSync,
   shouldSync,
   type MessageRecord,
+  type SyncNote,
   type SyncPayload,
+  type SyncSession,
 } from '@agentshow/shared'
 import {
   getEventsAfterLocalId,
+  getMcpNotesModifiedSince,
+  getMcpSessionByCwd,
   getSessionsModifiedSince,
   getSyncState,
   setSyncState,
@@ -62,19 +67,28 @@ export class CloudSync {
 
     const lastSyncedSessionAt = getSyncState(this.db, 'last_synced_session_at') ?? ''
     const lastSyncedEventId = Number(getSyncState(this.db, 'last_synced_event_id') ?? '0')
+    const lastSyncedNoteAt = getSyncState(this.db, 'last_synced_note_at') ?? ''
     const sessions = getSessionsModifiedSince(this.db, lastSyncedSessionAt)
       .map((session) => shapeSessionForSync(session, config.privacy.level))
+      .map((session) => this.enrichSessionWithMcp(session))
     const rawEvents = config.privacy.level >= 2
       ? getEventsAfterLocalId(this.db, lastSyncedEventId, SYNC_BATCH_SIZE)
       : []
     const events = rawEvents
       .map((event) => shapeEventForSync(event, config.privacy.level))
       .filter((event): event is NonNullable<ReturnType<typeof shapeEventForSync>> => event !== null)
+    const rawNotes = config.privacy.level >= 2
+      ? getMcpNotesModifiedSince(this.db, lastSyncedNoteAt)
+      : []
+    const notes = rawNotes
+      .map((note) => shapeNoteForSync(note, config.privacy.level))
+      .filter((note): note is SyncNote => note !== null)
     const payload: SyncPayload = {
       device_id: config.device_id,
       synced_at: new Date().toISOString(),
       sessions,
       events,
+      ...(notes.length > 0 ? { notes } : {}),
     }
 
     try {
@@ -91,15 +105,28 @@ export class CloudSync {
         throw new Error(`Sync failed with status ${response.status}`)
       }
 
-      this.handleSuccess(sessions, rawEvents)
+      this.handleSuccess(sessions, rawEvents, rawNotes)
     } catch (error) {
       this.handleFailure(error)
     }
   }
 
+  private enrichSessionWithMcp(session: SyncSession): SyncSession {
+    const mcpSession = getMcpSessionByCwd(this.db, session.cwd)
+    if (!mcpSession) {
+      return session
+    }
+    return {
+      ...session,
+      task: mcpSession.task,
+      files: mcpSession.files,
+    }
+  }
+
   private handleSuccess(
-    sessions: ReturnType<typeof getSessionsModifiedSince>,
+    sessions: SyncSession[],
     events: MessageRecord[],
+    notes: SyncNote[],
   ): void {
     if (sessions.length > 0) {
       setSyncState(
@@ -114,6 +141,14 @@ export class CloudSync {
         this.db,
         'last_synced_event_id',
         String(events[events.length - 1]?.id ?? 0),
+      )
+    }
+
+    if (notes.length > 0) {
+      setSyncState(
+        this.db,
+        'last_synced_note_at',
+        notes[notes.length - 1]?.updated_at ?? '',
       )
     }
 

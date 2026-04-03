@@ -5,6 +5,7 @@ import type {
   MessageRecord,
   PrivacyLevel,
   SyncEvent,
+  SyncNote,
   SyncSession,
 } from './types.js'
 
@@ -58,6 +59,11 @@ export function shapeEventForSync(
     timestamp: event.timestamp,
     content_preview: event.content_preview,
   }
+}
+
+export function shapeNoteForSync(note: SyncNote, level: PrivacyLevel): SyncNote | null {
+  if (level < 2) return null
+  return { ...note }
 }
 
 function hashString(value: string): string {

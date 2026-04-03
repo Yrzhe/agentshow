@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { SyncPayload } from '@agentshow/shared'
-import { getWatermark, insertCloudEvents, updateWatermark, upsertCloudSession } from '../db/queries.js'
+import { getWatermark, insertCloudEvents, updateWatermark, upsertCloudNote, upsertCloudSession } from '../db/queries.js'
 import type { AppType } from '../index.js'
 import { bearerAuth } from '../middleware/auth.js'
 
@@ -22,6 +22,18 @@ syncRoutes.post('/', async (c) => {
   )
 
   await insertCloudEvents(c.env.DB, userId, events)
+
+  const notes = payload.notes ?? []
+  const projectSlugMap = new Map(
+    payload.sessions.map((s) => [s.session_id, s.project_slug]),
+  )
+  for (const note of notes) {
+    const projectSlug = note.session_id
+      ? projectSlugMap.get(note.session_id) ?? null
+      : null
+    await upsertCloudNote(c.env.DB, userId, payload.device_id, note, projectSlug)
+  }
+
   await updateWatermark(
     c.env.DB,
     userId,
@@ -34,6 +46,7 @@ syncRoutes.post('/', async (c) => {
     status: 'ok' as const,
     accepted_sessions: payload.sessions.length,
     accepted_events: events.length,
+    accepted_notes: notes.length,
     server_time: new Date().toISOString(),
   })
 })

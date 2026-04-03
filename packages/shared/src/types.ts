@@ -267,6 +267,7 @@ export interface SyncPayload {
   synced_at: string
   sessions: SyncSession[]
   events: SyncEvent[]
+  notes?: SyncNote[]
 }
 
 export interface SyncSession {
@@ -282,6 +283,8 @@ export interface SyncSession {
   total_output_tokens: number
   tool_calls: number
   conversation_path?: string | null
+  task?: string | null
+  files?: string | null
 }
 
 export interface SyncEvent {
@@ -295,6 +298,15 @@ export interface SyncEvent {
   model: string | null
   timestamp: string
   content_preview?: string | null
+}
+
+export interface SyncNote {
+  project_id: string
+  key: string
+  content: string
+  session_id: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface SyncResponse {

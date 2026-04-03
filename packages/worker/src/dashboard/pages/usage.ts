@@ -49,7 +49,36 @@ export async function renderUsagePage(root) {
         '<div><span class="muted">Ended</span><strong>' + formatNumber(statuses.ended) + '</strong></div>' +
       '</div></div>' +
     '</div>' +
+    '<div class="panel" style="margin-top:1.5rem;"><h3>Daily Tokens (Last 14 Days)</h3><div id="daily-chart" class="chart-list"><div class="muted">Loading...</div></div></div>' +
   '</section>';
+
+  try {
+    const dailyRes = await fetch('/api/usage/daily?days=14', { credentials: 'include' });
+    const dailyData = await dailyRes.json();
+    const dailyList = Array.isArray(dailyData.daily) ? dailyData.daily : [];
+    const chartEl = root.querySelector('#daily-chart');
+
+    if (dailyList.length === 0) {
+      chartEl.innerHTML = '<p class="muted">No daily data yet.</p>';
+    } else {
+      const maxDay = dailyList.reduce((max, d) => Math.max(max, Number(d.input_tokens || 0) + Number(d.output_tokens || 0)), 1);
+      chartEl.innerHTML = dailyList.map((d) => {
+        const input = Number(d.input_tokens || 0);
+        const output = Number(d.output_tokens || 0);
+        const total = input + output;
+        const pct = Math.max(4, Math.round(total / maxDay * 100));
+        return '<div class="chart-row">' +
+          '<div class="chart-row__label"><span>' + d.date + '</span><strong>' + formatNumber(total) + '</strong></div>' +
+          '<div class="chart-bar" style="position:relative;">' +
+            '<div class="chart-bar__fill" style="width:' + pct + '%;background:linear-gradient(90deg, rgba(88,166,255,0.5) 0%, rgba(88,166,255,0.8) ' + (input > 0 ? Math.round(input / total * 100) : 50) + '%, rgba(63,185,80,0.8) 100%);"></div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+  } catch (err) {
+    const chartEl = root.querySelector('#daily-chart');
+    if (chartEl) chartEl.innerHTML = '<p class="muted">Failed to load daily data.</p>';
+  }
 }
 `
 }

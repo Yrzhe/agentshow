@@ -1,6 +1,7 @@
 import { sessionDetailPageJs } from './pages/session-detail.js'
 import { sessionsPageJs } from './pages/sessions.js'
 import { createProjectsPage } from './pages/projects.js'
+import { searchPageJs } from './pages/search.js'
 import { createSettingsPage } from './pages/settings.js'
 import { createUsagePage } from './pages/usage.js'
 
@@ -41,6 +42,7 @@ function renderNav(route) {
   aside.className = 'sidebar'
   const navItems = [
     ['#/', 'Sessions'],
+    ['#/search', 'Search'],
     ['#/projects', 'Projects'],
     ['#/usage', 'Usage'],
     ['#/settings', 'Settings'],
@@ -67,6 +69,7 @@ async function renderRoute(route) {
   }
 
   if (route.name === 'login') return renderLoginPage()
+  if (route.name === 'search') return renderSearchPage(context)
   if (route.name === 'session') return renderSessionDetailPage(context)
   if (route.name === 'projects') { var p = document.createElement('div'); await renderProjectsPage(p); return p }
   if (route.name === 'usage') { var u = document.createElement('div'); await renderUsagePage(u); return u }
@@ -212,6 +215,7 @@ function parseRoute(hash) {
   const query = Object.fromEntries(new URLSearchParams(parts[1] || ''))
   const sessionMatch = path.match(/^\\/session\\/([^/]+)$/)
   if (path === '/login') return { name: 'login', params: [], query: query }
+  if (path === '/search') return { name: 'search', params: [], query: query }
   if (path === '/projects') return { name: 'projects', params: [], query: query }
   if (path === '/usage') return { name: 'usage', params: [], query: query }
   if (path === '/settings') return { name: 'settings', params: [], query: query }
@@ -286,6 +290,7 @@ function escapeHtml(value) {
 }
 
 ${sessionsPageJs}
+${searchPageJs}
 ${sessionDetailPageJs}
 ${createProjectsPage()}
 ${createSettingsPage()}

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- MCP-Daemon bridge: daemon reads MCP notes/sessions tables and includes semantic data in cloud sync
+  - Session enrichment: daemon correlates MCP sessions by `cwd` to attach `task` and `files` to synced sessions
+  - Notes sync: MCP shared notes flow through daemon → cloud (privacy level 2+)
+  - Graceful fallback: `hasMcpTable()` check prevents crashes when MCP tables don't exist
+- Cloud notes storage: `cloud_notes` table in D1 with upsert-by-project-key semantics
+- Notes API: `GET /api/notes?project_slug=&session_id=` for querying synced notes
+- Usage daily API: `GET /api/usage/daily?days=N` for daily token aggregation
+- Session summary generation via Cloudflare Workers AI (Llama 3.1 8B)
+- Full-text search across events and notes (`GET /api/search` with UNION ALL)
+- Dashboard enhancements:
+  - Session detail: task card, files list, linked notes section, AI summary with Generate button
+  - Sessions list: summary column, project filtering (`?project=slug`)
+  - Usage page: daily tokens bar chart (last 14 days)
+  - Search page: keyword search with highlighting, note results with badge
+- Email login with 6-digit verification code (Resend)
+- `SyncNote` type in shared package, `shapeNoteForSync()` privacy filter
+
+### Changed
 - Local daemon (`@agentshow/daemon`) for automatic Claude Code session monitoring
   - Session discovery from `~/.claude/sessions/*.json`
   - Incremental JSONL conversation parsing with byte-offset tracking
@@ -23,8 +41,6 @@ All notable changes to this project will be documented in this file.
   - GitHub OAuth + API token authentication (Bearer + Cookie JWT)
   - Vanilla JS SPA dashboard: sessions list, session detail, projects, usage, settings, login
   - Deploy instructions for Cloudflare Workers + D1
-
-### Changed
 - Product direction: from MCP-only to Daemon + Skill + Cloud architecture
 - Reorganized docs into current + archive structure
 
