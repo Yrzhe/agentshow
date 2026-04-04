@@ -1,4 +1,6 @@
 import { sessionDetailPageJs } from './pages/session-detail.js'
+import { createBudgetPage } from './pages/budget.js'
+import { createCostAttributionPage } from './pages/cost-attribution.js'
 import { sessionsPageJs } from './pages/sessions.js'
 import { createDailySummaryPage } from './pages/daily-summary.js'
 import { createProjectsPage } from './pages/projects.js'
@@ -47,6 +49,8 @@ function renderNav(route) {
     ['#/search', 'Search'],
     ['#/projects', 'Projects'],
     ['#/usage', 'Usage'],
+    ['#/budget', 'Budget'],
+    ['#/cost', 'Cost Attribution'],
     ['#/settings', 'Settings'],
   ]
   aside.innerHTML = '<div class="brand">AgentShow<small>' + escapeHtml(currentUser?.github_login || 'Dashboard') + '</small></div><nav class="nav"></nav>'
@@ -76,6 +80,8 @@ async function renderRoute(route) {
   if (route.name === 'session') return renderSessionDetailPage(context)
   if (route.name === 'projects') { var p = document.createElement('div'); await renderProjectsPage(p); return p }
   if (route.name === 'usage') { var u = document.createElement('div'); await renderUsagePage(u); return u }
+  if (route.name === 'budget') { var b = document.createElement('div'); await renderBudgetPage(b); return b }
+  if (route.name === 'cost') { var ca = document.createElement('div'); await renderCostAttributionPage(ca); return ca }
   if (route.name === 'settings') { var s = document.createElement('div'); await renderSettingsPage(s); return s }
   return renderSessionsPage(context)
 }
@@ -222,6 +228,8 @@ function parseRoute(hash) {
   if (path === '/search') return { name: 'search', params: [], query: query }
   if (path === '/projects') return { name: 'projects', params: [], query: query }
   if (path === '/usage') return { name: 'usage', params: [], query: query }
+  if (path === '/budget') return { name: 'budget', params: [], query: query }
+  if (path === '/cost') return { name: 'cost', params: [], query: query }
   if (path === '/settings') return { name: 'settings', params: [], query: query }
   if (sessionMatch) return { name: 'session', params: [decodeURIComponent(sessionMatch[1])], query: query }
   return { name: 'home', params: [], query: query }
@@ -300,4 +308,6 @@ ${createDailySummaryPage()}
 ${createProjectsPage()}
 ${createSettingsPage()}
 ${createUsagePage()}
+${createBudgetPage()}
+${createCostAttributionPage()}
 `

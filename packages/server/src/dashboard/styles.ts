@@ -86,6 +86,13 @@ button:hover { border-color: var(--blue); }
   box-shadow: var(--shadow);
   padding: 1rem 1.1rem;
 }
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1rem 1.1rem;
+}
 .card-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -113,6 +120,52 @@ button:hover { border-color: var(--blue); }
 .toolbar button.active {
   background: rgba(88, 166, 255, 0.14);
   border-color: rgba(88, 166, 255, 0.4);
+}
+.split-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+.stats-grid strong,
+.chart-row__label strong {
+  display: block;
+  margin-top: 0.35rem;
+}
+.chart-list {
+  display: grid;
+  gap: 0.85rem;
+}
+.chart-row {
+  display: grid;
+  gap: 0.45rem;
+}
+.chart-row__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.chart-row__label span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chart-bar {
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+.chart-bar__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), #7ee787);
 }
 
 .table-wrap {
@@ -191,6 +244,37 @@ tbody tr:last-child td { border-bottom: 0; }
   font-weight: 700;
 }
 .muted { color: var(--muted); }
+.project-card {
+  display: grid;
+  gap: 0.85rem;
+  text-decoration: none;
+}
+.project-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.project-card__slug {
+  font-weight: 700;
+  word-break: break-word;
+}
+.project-card__cwd {
+  margin: 0;
+  min-height: 2.6em;
+}
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.status-chip--active {
+  color: var(--green);
+  background: rgba(63, 185, 80, 0.12);
+}
 
 @media (max-width: 920px) {
   .shell { grid-template-columns: 1fr; }
@@ -199,6 +283,8 @@ tbody tr:last-child td { border-bottom: 0; }
     border-bottom: 1px solid var(--border);
   }
   .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .split-layout,
+  .stats-grid { grid-template-columns: 1fr; }
   .content { padding: 1rem; }
 }
 

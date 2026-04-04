@@ -18,6 +18,18 @@ All notable changes to this project will be documented in this file.
 - Daily work summary: `GET /api/daily-summary?date=YYYY-MM-DD` with dashboard page
 - Token cost estimation: `GET /api/usage/cost?days=N` with model pricing (Opus/Sonnet/Haiku)
 - Dashboard usage page shows estimated dollar cost alongside token counts
+- Budget alerts: daily/monthly budget caps with progress tracking
+  - `GET /api/budget` returns budget settings with current usage, threshold, and limit status
+  - `PUT /api/budget` to create/update budget settings
+  - `DELETE /api/budget/:type` to remove budget settings
+  - Dashboard Budget page with progress bars (green/yellow/red) and budget management form
+  - Migration `0005_budgets.sql` with `budget_settings` table
+- Cost attribution: breakdown costs by project, session, and tool type
+  - `GET /api/cost/by-project?days=N` — project-level cost ranking
+  - `GET /api/cost/by-session?days=N&project=slug` — session-level cost breakdown
+  - `GET /api/cost/by-tool?days=N` — tool-type cost ranking
+  - Dashboard Cost Attribution page with expandable project → session drill-down
+  - Bar charts for project and tool cost visualization
 
 ### Fixed
 - Sync datetime format mismatch: daemon stored space-separated timestamps while watermark used ISO 'T' format, causing sessions to never re-sync after initial upload. Fixed with `datetime()` SQL comparison and normalized watermark storage.

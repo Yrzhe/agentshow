@@ -43,7 +43,7 @@
 - [x] hasMcpTable() 优雅降级
 - [x] 8 个 bridge 测试通过
 
-### Step 4: Session 摘要 & 搜索 ✅ (部分完成)
+### Step 4: Session 摘要 & 搜索 ✅
 
 **为什么**: 监控 ≠ 价值。用户不需要看 agent 在干什么（已经知道），需要干完之后的总结和找回。
 
@@ -58,10 +58,10 @@
 - [x] Worker API: GET /api/search?q=keyword&limit=&offset=
 - [x] Dashboard 搜索页：关键词高亮、分页、note badge
 
-#### 4c: 每日工作总结
-- [ ] 定时任务（或手动触发）：生成"今日 Agent 工作总结"
-- [ ] 按项目分组，列出每个 session 的关键产出
-- [ ] 可以导出为 Markdown 或发送到邮箱
+#### 4c: 每日工作总结 ✅
+- [x] API: GET /api/daily-summary?date=YYYY-MM-DD（按项目分组，含 session 详情）
+- [x] Dashboard 页面：日期选择器、项目卡片、session 列表、token 统计
+- [x] Server + Worker 双端实现
 
 ### Dashboard 增强 ✅
 - [x] Session 详情：Task 卡片、Files 列表、关联 Notes、AI 摘要
@@ -82,21 +82,23 @@
 
 ## 待做
 
-### Step 5: 成本管理
+### Step 5: 成本管理 (进行中)
 
-#### 5a: Token 成本换算
-- [ ] 配置模型单价（input/output per 1M tokens）
-- [ ] Dashboard 显示美元金额而不是只显示 token 数
-- [ ] 日/周/月 成本趋势图
+#### 5a: Token 成本换算 ✅
+- [x] 配置模型单价（Claude Opus $15/$75, Sonnet $3/$15, Haiku $0.80/$4 per 1M tokens）
+- [x] Dashboard 显示美元金额 + token 数
+- [x] 日成本趋势图（GET /api/usage/cost, GET /api/usage/daily）
+- [x] Server + Worker 双端实现
 
-#### 5b: 预算告警
+#### 5b: 预算告警 (开发中)
 - [ ] 设置每日/每月预算上限
-- [ ] 超出时通过邮件或 Dashboard 通知
-- [ ] 按项目设置独立预算
+- [ ] Dashboard 预算使用进度条（绿/黄/红）
+- [ ] 预算设置 CRUD API
 
-#### 5c: 成本归因
+#### 5c: 成本归因 (开发中)
 - [ ] 按项目、按 session、按工具类型拆分成本
-- [ ] "哪个项目花的最多？""Bash 工具比 Read 贵多少？"
+- [ ] Dashboard 成本归因页面（条形图 + 表格）
+- [ ] 点击项目展开 session 级成本明细
 
 ### Step 6: 团队功能
 
@@ -137,17 +139,21 @@
 - ~~Step 3.5: MCP-Daemon Bridge~~ ✅ (2026-04-04)
 - ~~Docker 迁移 Phase 1~~ ✅ (2026-04-04)
 
-### 当前轮次：功能补齐
+### 已完成轮次：功能补齐 ✅ (2026-04-04)
+- ~~Bridge 4A: Daemon API 暴露 MCP 数据~~ ✅
+- ~~Bridge 4B: Skill 更新~~ ✅
+- ~~4c: 每日工作总结~~ ✅
+- ~~5a: Token 成本换算~~ ✅
 
-| # | 任务 | 优先级 | 依赖 | 预估 |
+### 当前轮次：成本管理 + Docker
+
+| # | 任务 | 优先级 | 依赖 | 状态 |
 |---|------|--------|------|------|
-| A | Bridge 4A: Daemon API 暴露 MCP 数据 (`/notes`, sessions 含 task) | 高 | 无 | ~70 LOC |
-| B | Bridge 4B: Skill 更新 (`/notes` 命令, `/peers` 显示 task) | 高 | A | ~20 LOC |
-| C | 4c: 每日工作总结 (API + Dashboard) | 中 | 无 | ~200 LOC |
-| D | 5a: Token 成本换算 (模型单价 → 美元显示) | 中 | 无 | ~200 LOC |
-| E | Docker Phase 2: 端到端集成测试 + VPS 部署文档 | 中 | 无 | ~100 LOC |
+| A | 5b: 预算告警 (日/月上限, 进度条, CRUD API) | 高 | 无 | 开发中 |
+| B | 5c: 成本归因 (按项目/session/工具拆分) | 高 | 无 | 开发中 |
+| C | Docker Phase 2: 端到端集成测试 + VPS 部署文档 | 中 | A+B | 待做 |
 
-**A+C+D+E 可并行。B 依赖 A。**
+**A+B 并行开发中。C 待 A+B 完成后执行。**
 
 ---
 

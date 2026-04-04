@@ -11,8 +11,9 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 
 const DEFAULT_PRICING = { input: 3, output: 15 }
 
-function estimateCost(inputTokens: number, outputTokens: number): number {
-  return (inputTokens / 1_000_000) * DEFAULT_PRICING.input + (outputTokens / 1_000_000) * DEFAULT_PRICING.output
+export function estimateCost(inputTokens: number, outputTokens: number, model?: string | null): number {
+  const pricing = (model ? MODEL_PRICING[model] : undefined) ?? DEFAULT_PRICING
+  return (inputTokens / 1_000_000) * pricing.input + (outputTokens / 1_000_000) * pricing.output
 }
 
 export const usageDailyRoutes = new Hono<AppType>()

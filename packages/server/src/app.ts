@@ -6,6 +6,8 @@ import { runMigrations } from './db/migrate.js'
 import { loadEnv } from './env.js'
 import { authEmailRoutes } from './api/auth-email.js'
 import { authGithubRoutes } from './api/auth-github.js'
+import { budgetRoutes } from './api/budget.js'
+import { costAttributionRoutes } from './api/cost-attribution.js'
 import { dailySummaryRoutes } from './api/daily-summary.js'
 import { notesRoutes } from './api/notes.js'
 import { projectRoutes } from './api/projects.js'
@@ -41,6 +43,8 @@ app.route('/api/projects', projectRoutes)
 app.route('/api/search', searchRoutes)
 app.route('/api/notes', notesRoutes)
 app.route('/api/usage', usageDailyRoutes)
+app.route('/api/budget', budgetRoutes)
+app.route('/api/cost', costAttributionRoutes)
 app.route('/', dashboardRoutes)
 
 export { app }

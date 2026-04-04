@@ -29,6 +29,14 @@ type SessionStats = Pick<
   'total_input_tokens' | 'total_output_tokens' | 'tool_calls' | 'message_count'
 >
 
+type BudgetType = 'daily' | 'monthly'
+
+type BudgetSetting = {
+  budget_type: BudgetType
+  limit_usd: number
+  alert_threshold: number
+}
+
 export function upsertCloudSession(
   db: Database.Database,
   userId: string,
@@ -399,4 +407,151 @@ export function getTokensByDay(
     GROUP BY date(started_at)
     ORDER BY date ASC
   `).all(userId, days) as Array<{ date: string; input_tokens: number; output_tokens: number }>
+}
+
+export function getBudgetSettings(
+  db: Database.Database,
+  userId: string,
+): BudgetSetting[] {
+  return db.prepare(`
+    SELECT budget_type, limit_usd, alert_threshold
+    FROM budget_settings
+    WHERE user_id = ?
+    ORDER BY CASE budget_type WHEN 'daily' THEN 0 ELSE 1 END
+  `).all(userId) as BudgetSetting[]
+}
+
+export function upsertBudgetSetting(
+  db: Database.Database,
+  userId: string,
+  budgetType: BudgetType,
+  limitUsd: number,
+  alertThreshold: number,
+): void {
+  db.prepare(`
+    INSERT INTO budget_settings (user_id, budget_type, limit_usd, alert_threshold, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id, budget_type) DO UPDATE SET
+      limit_usd = excluded.limit_usd,
+      alert_threshold = excluded.alert_threshold,
+      updated_at = datetime('now')
+  `).run(userId, budgetType, limitUsd, alertThreshold)
+}
+
+export function deleteBudgetSetting(
+  db: Database.Database,
+  userId: string,
+  budgetType: BudgetType,
+): void {
+  db.prepare('DELETE FROM budget_settings WHERE user_id = ? AND budget_type = ?').run(userId, budgetType)
+}
+
+export function getCostByProject(
+  db: Database.Database,
+  userId: string,
+  days: number = 30,
+): Array<{
+  project_slug: string | null
+  session_count: number
+  input_tokens: number
+  output_tokens: number
+}> {
+  return db.prepare(`
+    SELECT
+      project_slug,
+      COUNT(*) AS session_count,
+      SUM(total_input_tokens) AS input_tokens,
+      SUM(total_output_tokens) AS output_tokens
+    FROM cloud_sessions
+    WHERE user_id = ? AND started_at >= datetime('now', '-' || ? || ' days')
+    GROUP BY project_slug
+    ORDER BY (SUM(total_input_tokens) + SUM(total_output_tokens)) DESC, project_slug ASC
+  `).all(userId, days) as Array<{
+    project_slug: string | null
+    session_count: number
+    input_tokens: number
+    output_tokens: number
+  }>
+}
+
+export function getCostBySession(
+  db: Database.Database,
+  userId: string,
+  projectSlug?: string,
+  days: number = 30,
+): Array<{
+  session_id: string
+  project_slug: string | null
+  started_at: string
+  status: CloudSessionStatus
+  input_tokens: number
+  output_tokens: number
+  tool_calls: number
+  task: string | null
+  summary: string | null
+}> {
+  const conditions = ['user_id = ?', "started_at >= datetime('now', '-' || ? || ' days')"]
+  const values: Array<string | number> = [userId, days]
+
+  if (projectSlug) {
+    conditions.push('project_slug = ?')
+    values.push(projectSlug)
+  }
+
+  return db.prepare(`
+    SELECT
+      session_id,
+      project_slug,
+      started_at,
+      status,
+      total_input_tokens AS input_tokens,
+      total_output_tokens AS output_tokens,
+      tool_calls,
+      task,
+      summary
+    FROM cloud_sessions
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY (total_input_tokens + total_output_tokens) DESC, started_at DESC
+    LIMIT 50
+  `).all(...values) as Array<{
+    session_id: string
+    project_slug: string | null
+    started_at: string
+    status: CloudSessionStatus
+    input_tokens: number
+    output_tokens: number
+    tool_calls: number
+    task: string | null
+    summary: string | null
+  }>
+}
+
+export function getCostByToolType(
+  db: Database.Database,
+  userId: string,
+  days: number = 30,
+): Array<{
+  tool_name: string
+  call_count: number
+  input_tokens: number
+  output_tokens: number
+}> {
+  return db.prepare(`
+    SELECT
+      tool_name,
+      COUNT(*) AS call_count,
+      SUM(input_tokens) AS input_tokens,
+      SUM(output_tokens) AS output_tokens
+    FROM cloud_events
+    WHERE user_id = ?
+      AND tool_name IS NOT NULL
+      AND timestamp >= datetime('now', '-' || ? || ' days')
+    GROUP BY tool_name
+    ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC, tool_name ASC
+  `).all(userId, days) as Array<{
+    tool_name: string
+    call_count: number
+    input_tokens: number
+    output_tokens: number
+  }>
 }
