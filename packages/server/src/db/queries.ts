@@ -5,6 +5,14 @@ import type {
   CloudSession,
   CloudSessionStatus,
   SearchResult,
+  Team,
+  TeamInvite,
+  TeamListItem,
+  TeamMember,
+  TeamMemberRole,
+  TeamSession,
+  TeamUsageSummary,
+  TeamWeeklyReportMember,
   SyncEvent,
   SyncNote,
   SyncSession,
@@ -35,6 +43,49 @@ type BudgetSetting = {
   budget_type: BudgetType
   limit_usd: number
   alert_threshold: number
+}
+
+type WebhookConfigInput = {
+  name: string
+  url: string
+  secret?: string | null
+  events: string
+}
+
+type WebhookConfigUpdate = WebhookConfigInput & {
+  is_active: number
+}
+
+type WebhookConfigRow = {
+  id: number
+  user_id: string
+  name: string
+  url: string
+  secret: string | null
+  events: string
+  is_active: number
+  created_at: string
+  updated_at: string
+}
+
+type WebhookDeliveryInput = {
+  webhook_id: number
+  event_type: string
+  payload: string
+  status_code: number | null
+  response_body: string
+  success: number
+}
+
+type WebhookDeliveryRow = {
+  id: number
+  webhook_id: number
+  event_type: string
+  payload: string
+  status_code: number | null
+  response_body: string | null
+  success: number
+  attempted_at: string
 }
 
 export function upsertCloudSession(
@@ -446,6 +497,121 @@ export function deleteBudgetSetting(
   db.prepare('DELETE FROM budget_settings WHERE user_id = ? AND budget_type = ?').run(userId, budgetType)
 }
 
+export function getWebhookConfigs(
+  db: Database.Database,
+  userId: string,
+): WebhookConfigRow[] {
+  return db.prepare(`
+    SELECT *
+    FROM webhook_configs
+    WHERE user_id = ?
+    ORDER BY created_at DESC, id DESC
+  `).all(userId) as WebhookConfigRow[]
+}
+
+export function getWebhookConfigById(
+  db: Database.Database,
+  userId: string,
+  webhookId: number,
+): WebhookConfigRow | null {
+  const row = db.prepare(`
+    SELECT *
+    FROM webhook_configs
+    WHERE user_id = ? AND id = ?
+    LIMIT 1
+  `).get(userId, webhookId) as WebhookConfigRow | undefined
+  return row ?? null
+}
+
+export function createWebhookConfig(
+  db: Database.Database,
+  userId: string,
+  input: WebhookConfigInput,
+): number {
+  const result = db.prepare(`
+    INSERT INTO webhook_configs (user_id, name, url, secret, events, updated_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now'))
+  `).run(userId, input.name, input.url, input.secret ?? null, input.events)
+  return Number(result.lastInsertRowid)
+}
+
+export function updateWebhookConfig(
+  db: Database.Database,
+  userId: string,
+  webhookId: number,
+  input: WebhookConfigUpdate,
+): void {
+  db.prepare(`
+    UPDATE webhook_configs
+    SET name = ?, url = ?, secret = ?, events = ?, is_active = ?, updated_at = datetime('now')
+    WHERE user_id = ? AND id = ?
+  `).run(
+    input.name,
+    input.url,
+    input.secret ?? null,
+    input.events,
+    input.is_active,
+    userId,
+    webhookId,
+  )
+}
+
+export function deleteWebhookConfig(
+  db: Database.Database,
+  userId: string,
+  webhookId: number,
+): void {
+  db.prepare('DELETE FROM webhook_configs WHERE user_id = ? AND id = ?').run(userId, webhookId)
+}
+
+export function getActiveWebhooksForEvent(
+  db: Database.Database,
+  userId: string,
+  eventType: string,
+): WebhookConfigRow[] {
+  return db.prepare(`
+    SELECT *
+    FROM webhook_configs
+    WHERE user_id = ?
+      AND is_active = 1
+      AND instr(',' || replace(events, ' ', '') || ',', ',' || ? || ',') > 0
+    ORDER BY id ASC
+  `).all(userId, eventType) as WebhookConfigRow[]
+}
+
+export function insertWebhookDelivery(
+  db: Database.Database,
+  input: WebhookDeliveryInput,
+): number {
+  const result = db.prepare(`
+    INSERT INTO webhook_deliveries (
+      webhook_id, event_type, payload, status_code, response_body, success
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    input.webhook_id,
+    input.event_type,
+    input.payload,
+    input.status_code,
+    input.response_body,
+    input.success,
+  )
+  return Number(result.lastInsertRowid)
+}
+
+export function getWebhookDeliveries(
+  db: Database.Database,
+  webhookId: number,
+  limit: number,
+): WebhookDeliveryRow[] {
+  return db.prepare(`
+    SELECT *
+    FROM webhook_deliveries
+    WHERE webhook_id = ?
+    ORDER BY attempted_at DESC, id DESC
+    LIMIT ?
+  `).all(webhookId, limit) as WebhookDeliveryRow[]
+}
+
 export function getCostByProject(
   db: Database.Database,
   userId: string,
@@ -554,4 +720,268 @@ export function getCostByToolType(
     input_tokens: number
     output_tokens: number
   }>
+}
+
+export function createTeam(
+  db: Database.Database,
+  teamId: string,
+  name: string,
+  ownerId: string,
+): Team {
+  db.transaction(() => {
+    db.prepare('INSERT INTO teams (id, name, owner_id) VALUES (?, ?, ?)').run(teamId, name, ownerId)
+    db.prepare('INSERT INTO team_members (team_id, user_id, role, invited_by) VALUES (?, ?, ?, ?)').run(
+      teamId,
+      ownerId,
+      'admin',
+      ownerId,
+    )
+  })()
+  return getTeamById(db, teamId) as Team
+}
+
+export function getTeamsByUser(db: Database.Database, userId: string): TeamListItem[] {
+  return db.prepare(`
+    SELECT t.id, t.name, t.owner_id, t.created_at, tm.role
+    FROM team_members tm
+    JOIN teams t ON t.id = tm.team_id
+    WHERE tm.user_id = ?
+    ORDER BY t.created_at DESC, t.name ASC
+  `).all(userId) as TeamListItem[]
+}
+
+export function getTeamById(db: Database.Database, teamId: string): Team | null {
+  const row = db.prepare(
+    'SELECT id, name, owner_id, created_at FROM teams WHERE id = ? LIMIT 1',
+  ).get(teamId) as Team | undefined
+  return row ?? null
+}
+
+export function updateTeamName(
+  db: Database.Database,
+  teamId: string,
+  ownerId: string,
+  name: string,
+): boolean {
+  const result = db.prepare('UPDATE teams SET name = ? WHERE id = ? AND owner_id = ?').run(name, teamId, ownerId)
+  return result.changes > 0
+}
+
+export function deleteTeam(db: Database.Database, teamId: string, ownerId: string): boolean {
+  const result = db.transaction(() => {
+    const existing = db.prepare('SELECT 1 FROM teams WHERE id = ? AND owner_id = ? LIMIT 1').get(
+      teamId,
+      ownerId,
+    ) as { 1: number } | undefined
+    if (!existing) {
+      return false
+    }
+    db.prepare('DELETE FROM team_invites WHERE team_id = ?').run(teamId)
+    db.prepare('DELETE FROM team_members WHERE team_id = ?').run(teamId)
+    db.prepare('DELETE FROM teams WHERE id = ? AND owner_id = ?').run(teamId, ownerId)
+    return true
+  })()
+  return result
+}
+
+export function getTeamMembers(db: Database.Database, teamId: string): TeamMember[] {
+  return db.prepare(`
+    SELECT tm.team_id, tm.user_id, tm.role, tm.invited_by, tm.joined_at,
+           u.email, u.github_login, u.github_avatar_url
+    FROM team_members tm
+    JOIN users u ON u.id = tm.user_id
+    WHERE tm.team_id = ?
+    ORDER BY CASE tm.role WHEN 'admin' THEN 0 ELSE 1 END, tm.joined_at ASC
+  `).all(teamId) as TeamMember[]
+}
+
+export function addTeamMember(
+  db: Database.Database,
+  teamId: string,
+  userId: string,
+  role: TeamMemberRole,
+): void {
+  db.prepare(`
+    INSERT INTO team_members (team_id, user_id, role)
+    VALUES (?, ?, ?)
+    ON CONFLICT(team_id, user_id) DO UPDATE SET role = excluded.role
+  `).run(teamId, userId, role)
+}
+
+export function updateMemberRole(
+  db: Database.Database,
+  teamId: string,
+  userId: string,
+  role: TeamMemberRole,
+): boolean {
+  const result = db.prepare('UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ?').run(
+    role,
+    teamId,
+    userId,
+  )
+  return result.changes > 0
+}
+
+export function removeTeamMember(db: Database.Database, teamId: string, userId: string): boolean {
+  const result = db.prepare('DELETE FROM team_members WHERE team_id = ? AND user_id = ?').run(teamId, userId)
+  return result.changes > 0
+}
+
+export function isTeamMember(db: Database.Database, teamId: string, userId: string): boolean {
+  const row = db.prepare(
+    'SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ? LIMIT 1',
+  ).get(teamId, userId) as { 1: number } | undefined
+  return Boolean(row)
+}
+
+export function isTeamAdmin(db: Database.Database, teamId: string, userId: string): boolean {
+  const row = db.prepare(
+    "SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ? AND role = 'admin' LIMIT 1",
+  ).get(teamId, userId) as { 1: number } | undefined
+  return Boolean(row)
+}
+
+export function createTeamInvite(
+  db: Database.Database,
+  inviteId: string,
+  teamId: string,
+  email: string,
+  invitedBy: string,
+  expiresAt: string,
+): TeamInvite {
+  db.prepare(`
+    INSERT INTO team_invites (id, team_id, email, invited_by, expires_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(inviteId, teamId, email.toLowerCase(), invitedBy, expiresAt)
+  return db.prepare(`
+    SELECT id, team_id, email, invited_by, status, created_at, expires_at
+    FROM team_invites WHERE id = ? LIMIT 1
+  `).get(inviteId) as TeamInvite
+}
+
+export function getTeamInvites(db: Database.Database, teamId: string): TeamInvite[] {
+  return db.prepare(`
+    SELECT id, team_id, email, invited_by, status, created_at, expires_at
+    FROM team_invites
+    WHERE team_id = ? AND status = 'pending'
+    ORDER BY created_at DESC
+  `).all(teamId) as TeamInvite[]
+}
+
+export function acceptTeamInvite(db: Database.Database, inviteId: string, userId: string): TeamInvite | null {
+  const invite = db.prepare(`
+    SELECT id, team_id, email, invited_by, status, created_at, expires_at
+    FROM team_invites WHERE id = ? LIMIT 1
+  `).get(inviteId) as TeamInvite | undefined
+
+  if (!invite) {
+    return null
+  }
+
+  db.transaction(() => {
+    db.prepare("UPDATE team_invites SET status = 'accepted' WHERE id = ?").run(inviteId)
+    db.prepare(`
+      INSERT INTO team_members (team_id, user_id, role, invited_by)
+      VALUES (?, ?, 'member', ?)
+      ON CONFLICT(team_id, user_id) DO NOTHING
+    `).run(invite.team_id, userId, invite.invited_by)
+  })()
+
+  return { ...invite, status: 'accepted' }
+}
+
+export function getInviteByIdAndEmail(
+  db: Database.Database,
+  inviteId: string,
+  email: string,
+): TeamInvite | null {
+  const row = db.prepare(`
+    SELECT id, team_id, email, invited_by, status, created_at, expires_at
+    FROM team_invites
+    WHERE id = ? AND lower(email) = lower(?)
+    LIMIT 1
+  `).get(inviteId, email) as TeamInvite | undefined
+  return row ?? null
+}
+
+export function getTeamSessions(
+  db: Database.Database,
+  teamId: string,
+  opts: { days?: number; limit?: number; userId?: string } = {},
+): TeamSession[] {
+  const conditions = ["s.started_at >= datetime('now', '-' || ? || ' days')"]
+  const values: Array<string | number> = [opts.days ?? 30]
+
+  if (opts.userId) {
+    conditions.push('s.user_id = ?')
+    values.push(opts.userId)
+  }
+
+  return db.prepare(`
+    SELECT s.session_id, s.user_id, u.email, u.github_login, s.project_slug, s.status,
+           s.started_at, s.last_seen_at, s.total_input_tokens, s.total_output_tokens,
+           s.tool_calls, s.task, s.summary
+    FROM team_members tm
+    JOIN cloud_sessions s ON s.user_id = tm.user_id
+    JOIN users u ON u.id = s.user_id
+    WHERE tm.team_id = ? AND ${conditions.join(' AND ')}
+    ORDER BY s.last_seen_at DESC
+    LIMIT ?
+  `).all(teamId, ...values, opts.limit ?? 50) as TeamSession[]
+}
+
+export function getTeamUsageSummary(
+  db: Database.Database,
+  teamId: string,
+  days: number,
+): TeamUsageSummary {
+  const row = db.prepare(`
+    SELECT
+      COUNT(s.session_id) AS session_count,
+      COALESCE(SUM(s.total_input_tokens), 0) AS input_tokens,
+      COALESCE(SUM(s.total_output_tokens), 0) AS output_tokens,
+      COALESCE(SUM(s.tool_calls), 0) AS tool_calls,
+      COUNT(DISTINCT tm.user_id) AS member_count,
+      COUNT(DISTINCT s.user_id) AS active_members
+    FROM team_members tm
+    LEFT JOIN cloud_sessions s
+      ON s.user_id = tm.user_id
+     AND s.started_at >= datetime('now', '-' || ? || ' days')
+    WHERE tm.team_id = ?
+  `).get(days, teamId) as TeamUsageSummary | undefined
+
+  return row ?? {
+    session_count: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    tool_calls: 0,
+    member_count: 0,
+    active_members: 0,
+  }
+}
+
+export function getTeamWeeklyReport(
+  db: Database.Database,
+  teamId: string,
+  weekStart: string,
+): TeamWeeklyReportMember[] {
+  return db.prepare(`
+    SELECT
+      tm.user_id,
+      u.email,
+      u.github_login,
+      COUNT(s.session_id) AS session_count,
+      COALESCE(SUM(s.total_input_tokens), 0) AS input_tokens,
+      COALESCE(SUM(s.total_output_tokens), 0) AS output_tokens,
+      COALESCE(SUM(s.tool_calls), 0) AS tool_calls
+    FROM team_members tm
+    JOIN users u ON u.id = tm.user_id
+    LEFT JOIN cloud_sessions s
+      ON s.user_id = tm.user_id
+     AND s.started_at >= ?
+     AND s.started_at < date(?, '+7 days')
+    WHERE tm.team_id = ?
+    GROUP BY tm.user_id, u.email, u.github_login
+    ORDER BY (COALESCE(SUM(s.total_input_tokens), 0) + COALESCE(SUM(s.total_output_tokens), 0)) DESC, tm.joined_at ASC
+  `).all(weekStart, weekStart, teamId) as TeamWeeklyReportMember[]
 }

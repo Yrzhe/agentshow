@@ -30,6 +30,24 @@ All notable changes to this project will be documented in this file.
   - `GET /api/cost/by-tool?days=N` — tool-type cost ranking
   - Dashboard Cost Attribution page with expandable project → session drill-down
   - Bar charts for project and tool cost visualization
+- Webhook integration (Step 7c): session end notifications to external services
+  - `webhook_configs` + `webhook_deliveries` tables (migration 0006)
+  - CRUD API: `GET/POST/PUT/DELETE /api/webhooks`, `GET /:id/deliveries`, `POST /:id/test`
+  - Async webhook delivery engine with 10s timeout, secret header, delivery logging
+  - Auto-trigger on session end during sync
+  - Dashboard Webhooks page with config management and delivery history
+- Team spaces (Step 6a): multi-user team collaboration
+  - `teams`, `team_members`, `team_invites` tables (migration 0007)
+  - Team CRUD, member management with admin/member roles
+  - Email-based invite system with accept flow
+  - Team sessions and usage aggregation queries
+  - Dashboard Teams page with team list, detail, and member management
+- Team reports (Step 6b): weekly team productivity reports
+  - `GET /api/teams/:id/report?week=YYYY-MM-DD` — per-member session/token/cost breakdown
+  - Dashboard weekly report with member contribution table and cost bar chart
+- VPS deployment documentation (`docs/VPS_DEPLOYMENT.md`)
+  - Docker and non-Docker deployment guides
+  - Nginx reverse proxy, systemd service, backup, and security recommendations
 
 ### Fixed
 - Sync datetime format mismatch: daemon stored space-separated timestamps while watermark used ISO 'T' format, causing sessions to never re-sync after initial upload. Fixed with `datetime()` SQL comparison and normalized watermark storage.

@@ -6,7 +6,9 @@ import { createDailySummaryPage } from './pages/daily-summary.js'
 import { createProjectsPage } from './pages/projects.js'
 import { searchPageJs } from './pages/search.js'
 import { createSettingsPage } from './pages/settings.js'
+import { createTeamsPage } from './pages/teams.js'
 import { createUsagePage } from './pages/usage.js'
+import { createWebhooksPage } from './pages/webhooks.js'
 
 export const appJs = `const appRoot = document.getElementById('app')
 let cleanup = null
@@ -48,9 +50,11 @@ function renderNav(route) {
     ['#/daily-summary', 'Daily Summary'],
     ['#/search', 'Search'],
     ['#/projects', 'Projects'],
+    ['#/teams', 'Teams'],
     ['#/usage', 'Usage'],
     ['#/budget', 'Budget'],
     ['#/cost', 'Cost Attribution'],
+    ['#/webhooks', 'Webhooks'],
     ['#/settings', 'Settings'],
   ]
   aside.innerHTML = '<div class="brand">AgentShow<small>' + escapeHtml(currentUser?.github_login || 'Dashboard') + '</small></div><nav class="nav"></nav>'
@@ -59,7 +63,11 @@ function renderNav(route) {
     const link = document.createElement('a')
     link.href = item[0]
     link.textContent = item[1]
-    if (route.name === item[0].slice(2).split('/')[0] || (item[0] === '#/' && route.name === 'home')) {
+    if (
+      route.name === item[0].slice(2).split('/')[0]
+      || (item[0] === '#/' && route.name === 'home')
+      || (item[0] === '#/teams' && route.name === 'team')
+    ) {
       link.classList.add('active')
     }
     nav.appendChild(link)
@@ -79,9 +87,12 @@ async function renderRoute(route) {
   if (route.name === 'search') return renderSearchPage(context)
   if (route.name === 'session') return renderSessionDetailPage(context)
   if (route.name === 'projects') { var p = document.createElement('div'); await renderProjectsPage(p); return p }
+  if (route.name === 'teams') { var t = document.createElement('div'); await renderTeamsPage(t); return t }
+  if (route.name === 'team') { var td = document.createElement('div'); await renderTeamDetailPage(td, route.params[0], route.query); return td }
   if (route.name === 'usage') { var u = document.createElement('div'); await renderUsagePage(u); return u }
   if (route.name === 'budget') { var b = document.createElement('div'); await renderBudgetPage(b); return b }
   if (route.name === 'cost') { var ca = document.createElement('div'); await renderCostAttributionPage(ca); return ca }
+  if (route.name === 'webhooks') { var w = document.createElement('div'); await renderWebhooksPage(w); return w }
   if (route.name === 'settings') { var s = document.createElement('div'); await renderSettingsPage(s); return s }
   return renderSessionsPage(context)
 }
@@ -223,14 +234,18 @@ function parseRoute(hash) {
   const path = parts[0] || '/'
   const query = Object.fromEntries(new URLSearchParams(parts[1] || ''))
   const sessionMatch = path.match(/^\\/session\\/([^/]+)$/)
+  const teamMatch = path.match(/^\\/team\\/([^/]+)$/)
   if (path === '/login') return { name: 'login', params: [], query: query }
   if (path === '/daily-summary') return { name: 'daily-summary', params: [], query: query }
   if (path === '/search') return { name: 'search', params: [], query: query }
   if (path === '/projects') return { name: 'projects', params: [], query: query }
+  if (path === '/teams') return { name: 'teams', params: [], query: query }
   if (path === '/usage') return { name: 'usage', params: [], query: query }
   if (path === '/budget') return { name: 'budget', params: [], query: query }
   if (path === '/cost') return { name: 'cost', params: [], query: query }
+  if (path === '/webhooks') return { name: 'webhooks', params: [], query: query }
   if (path === '/settings') return { name: 'settings', params: [], query: query }
+  if (teamMatch) return { name: 'team', params: [decodeURIComponent(teamMatch[1])], query: query }
   if (sessionMatch) return { name: 'session', params: [decodeURIComponent(sessionMatch[1])], query: query }
   return { name: 'home', params: [], query: query }
 }
@@ -307,7 +322,9 @@ ${sessionDetailPageJs}
 ${createDailySummaryPage()}
 ${createProjectsPage()}
 ${createSettingsPage()}
+${createTeamsPage()}
 ${createUsagePage()}
 ${createBudgetPage()}
 ${createCostAttributionPage()}
+${createWebhooksPage()}
 `

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { SyncPayload } from '@agentshow/shared'
 import { getWatermark, insertCloudEvents, updateWatermark, upsertCloudNote, upsertCloudSession } from '../db/queries.js'
 import type { AppType } from '../index.js'
+import { triggerWebhooks } from '../lib/webhook-sender.js'
 import { bearerAuth } from '../middleware/auth.js'
 
 export const syncRoutes = new Hono<AppType>()
@@ -41,6 +42,23 @@ syncRoutes.post('/', async (c) => {
     payload.sessions[payload.sessions.length - 1]?.last_seen_at ?? watermark.last_session_seen_at,
     events[events.length - 1]?.local_id ?? watermark.last_event_local_id,
   )
+
+  payload.sessions
+    .filter((session) => session.status === 'ended')
+    .forEach((session) => {
+      void triggerWebhooks(c.env.DB, userId, 'session.ended', {
+        session_id: session.session_id,
+        project_slug: session.project_slug,
+        cwd: session.cwd,
+        started_at: session.started_at,
+        last_seen_at: session.last_seen_at,
+        message_count: session.message_count,
+        total_input_tokens: session.total_input_tokens,
+        total_output_tokens: session.total_output_tokens,
+        tool_calls: session.tool_calls,
+        task: session.task ?? null,
+      }).catch(() => undefined)
+    })
 
   return c.json({
     status: 'ok' as const,

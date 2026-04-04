@@ -11,6 +11,8 @@ import { searchRoutes } from './api/search.js'
 import { sessionRoutes } from './api/sessions.js'
 import { summaryRoutes } from './api/summary.js'
 import { syncRoutes } from './api/sync.js'
+import { webhookRoutes } from './api/webhooks.js'
+import { teamRoutes } from './api/teams.js'
 import { tokenRoutes } from './api/tokens.js'
 import { usageDailyRoutes } from './api/usage.js'
 import { dashboardRoutes } from './dashboard/serve.js'
@@ -47,10 +49,12 @@ app.route('/api/sessions', summaryRoutes)
 app.route('/api/sessions', sessionRoutes)
 app.route('/api/daily-summary', dailySummaryRoutes)
 app.route('/api/projects', projectRoutes)
+app.route('/api/teams', teamRoutes)
 app.route('/api/search', searchRoutes)
 app.route('/api/notes', notesRoutes)
 app.route('/api/usage', usageDailyRoutes)
 app.route('/api/budget', budgetRoutes)
+app.route('/api/webhooks', webhookRoutes)
 app.route('/api/cost', costAttributionRoutes)
 app.route('/', dashboardRoutes)
 
