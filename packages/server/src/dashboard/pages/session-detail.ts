@@ -27,6 +27,7 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
     cardHtml('Status', statusBadge(session.status)),
     cardHtml('Duration', sessionDuration(session.started_at, session.last_seen_at)),
     '</div>',
+    '<div style="display:flex;justify-content:flex-end;margin-bottom:1rem;"><a href="#/replay/' + encodeURIComponent(session.session_id) + '">Replay Session</a></div>',
     (session.task ? '<div class="card" style="margin-bottom:1rem;"><div class="card-label">Task</div><div style="line-height:1.6;white-space:pre-wrap;">' + escapeHtml(session.task) + '</div></div>' : ''),
     (session.files ? '<div class="card" style="margin-bottom:1rem;"><div class="card-label">Files</div><ul id="files-list" style="margin:0;padding-left:1.2rem;line-height:1.8;">' + (function () { try { return JSON.parse(session.files).map(function (f) { return '<li style="font-family:monospace;font-size:0.85rem;">' + escapeHtml(f) + '</li>' }).join('') } catch(e) { return '<li>' + escapeHtml(session.files) + '</li>' } })() + '</ul></div>' : ''),
     '<div id="notes-section"></div>',

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { auditRoutes } from './api/audit.js'
 import { authGithubRoutes } from './api/auth-github.js'
 import { authEmailRoutes } from './api/auth-email.js'
 import { budgetRoutes } from './api/budget.js'
@@ -7,6 +8,7 @@ import { costAttributionRoutes } from './api/cost-attribution.js'
 import { dailySummaryRoutes } from './api/daily-summary.js'
 import { notesRoutes } from './api/notes.js'
 import { projectRoutes } from './api/projects.js'
+import { replayRoutes } from './api/replay.js'
 import { searchRoutes } from './api/search.js'
 import { sessionRoutes } from './api/sessions.js'
 import { summaryRoutes } from './api/summary.js'
@@ -16,6 +18,7 @@ import { teamRoutes } from './api/teams.js'
 import { tokenRoutes } from './api/tokens.js'
 import { usageDailyRoutes } from './api/usage.js'
 import { dashboardRoutes } from './dashboard/serve.js'
+import { workflowRoutes } from './api/workflows.js'
 
 export type Bindings = {
   DB: D1Database
@@ -49,12 +52,15 @@ app.route('/api/sessions', summaryRoutes)
 app.route('/api/sessions', sessionRoutes)
 app.route('/api/daily-summary', dailySummaryRoutes)
 app.route('/api/projects', projectRoutes)
+app.route('/api/replay', replayRoutes)
 app.route('/api/teams', teamRoutes)
 app.route('/api/search', searchRoutes)
 app.route('/api/notes', notesRoutes)
+app.route('/api/audit', auditRoutes)
 app.route('/api/usage', usageDailyRoutes)
 app.route('/api/budget', budgetRoutes)
 app.route('/api/webhooks', webhookRoutes)
+app.route('/api/workflows', workflowRoutes)
 app.route('/api/cost', costAttributionRoutes)
 app.route('/', dashboardRoutes)
 

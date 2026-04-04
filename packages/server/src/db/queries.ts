@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3'
 import type {
+  AuditLog,
+  AuditStat,
   CloudNote,
   CloudProject,
   CloudSession,
@@ -13,6 +15,9 @@ import type {
   TeamSession,
   TeamUsageSummary,
   TeamWeeklyReportMember,
+  Workflow,
+  WorkflowRun,
+  WorkflowRunStatus,
   SyncEvent,
   SyncNote,
   SyncSession,
@@ -87,6 +92,27 @@ type WebhookDeliveryRow = {
   success: number
   attempted_at: string
 }
+
+type AuditLogInput = {
+  session_id: string
+  project_slug?: string | null
+  action_type: AuditLog['action_type']
+  action_detail?: string | null
+  file_path?: string | null
+  metadata?: string | null
+}
+
+type WorkflowInput = {
+  id: string
+  name: string
+  trigger_type: string
+  trigger_filter?: string | null
+  action_type: Workflow['action_type']
+  action_config: string
+  is_active?: number
+}
+
+type WorkflowUpdate = Omit<WorkflowInput, 'id'>
 
 export function upsertCloudSession(
   db: Database.Database,
@@ -612,6 +638,206 @@ export function getWebhookDeliveries(
   `).all(webhookId, limit) as WebhookDeliveryRow[]
 }
 
+export function insertAuditLog(
+  db: Database.Database,
+  userId: string,
+  log: AuditLogInput,
+): void {
+  db.prepare(`
+    INSERT INTO audit_logs (
+      user_id, session_id, project_slug, action_type, action_detail, file_path, metadata
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    userId,
+    log.session_id,
+    log.project_slug ?? null,
+    log.action_type,
+    log.action_detail ?? null,
+    log.file_path ?? null,
+    log.metadata ?? null,
+  )
+}
+
+export function getAuditLogs(
+  db: Database.Database,
+  userId: string,
+  opts: { session_id?: string; project_slug?: string; action_type?: string; file_path?: string; limit?: number; offset?: number },
+): AuditLog[] {
+  const conditions = ['user_id = ?']
+  const values: Array<string | number> = [userId]
+  if (opts.session_id) { conditions.push('session_id = ?'); values.push(opts.session_id) }
+  if (opts.project_slug) { conditions.push('project_slug = ?'); values.push(opts.project_slug) }
+  if (opts.action_type) { conditions.push('action_type = ?'); values.push(opts.action_type) }
+  if (opts.file_path) { conditions.push('file_path LIKE ?'); values.push(`%${opts.file_path}%`) }
+  return db.prepare(`
+    SELECT *
+    FROM audit_logs
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY timestamp DESC, id DESC
+    LIMIT ? OFFSET ?
+  `).all(...values, opts.limit ?? 100, opts.offset ?? 0) as AuditLog[]
+}
+
+export function getAuditLogsByFile(
+  db: Database.Database,
+  userId: string,
+  filePath: string,
+): AuditLog[] {
+  return db.prepare(`
+    SELECT *
+    FROM audit_logs
+    WHERE user_id = ? AND file_path = ?
+    ORDER BY timestamp DESC, id DESC
+  `).all(userId, filePath) as AuditLog[]
+}
+
+export function getAuditStats(
+  db: Database.Database,
+  userId: string,
+  days: number,
+): AuditStat[] {
+  return db.prepare(`
+    SELECT action_type, COUNT(*) AS count
+    FROM audit_logs
+    WHERE user_id = ? AND timestamp >= datetime('now', '-' || ? || ' days')
+    GROUP BY action_type
+    ORDER BY count DESC, action_type ASC
+  `).all(userId, days) as AuditStat[]
+}
+
+export function createWorkflow(
+  db: Database.Database,
+  userId: string,
+  workflow: WorkflowInput,
+): void {
+  db.prepare(`
+    INSERT INTO workflows (
+      id, user_id, name, trigger_type, trigger_filter, action_type, action_config, is_active, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).run(
+    workflow.id,
+    userId,
+    workflow.name,
+    workflow.trigger_type,
+    workflow.trigger_filter ?? null,
+    workflow.action_type,
+    workflow.action_config,
+    workflow.is_active ?? 1,
+  )
+}
+
+export function getWorkflows(
+  db: Database.Database,
+  userId: string,
+): Workflow[] {
+  return db.prepare(`
+    SELECT *
+    FROM workflows
+    WHERE user_id = ?
+    ORDER BY created_at DESC, id DESC
+  `).all(userId) as Workflow[]
+}
+
+export function getWorkflowById(
+  db: Database.Database,
+  userId: string,
+  workflowId: string,
+): Workflow | null {
+  const row = db.prepare(`
+    SELECT *
+    FROM workflows
+    WHERE user_id = ? AND id = ?
+    LIMIT 1
+  `).get(userId, workflowId) as Workflow | undefined
+  return row ?? null
+}
+
+export function updateWorkflow(
+  db: Database.Database,
+  userId: string,
+  workflowId: string,
+  workflow: WorkflowUpdate,
+): void {
+  db.prepare(`
+    UPDATE workflows
+    SET name = ?, trigger_type = ?, trigger_filter = ?, action_type = ?, action_config = ?, is_active = ?, updated_at = datetime('now')
+    WHERE user_id = ? AND id = ?
+  `).run(
+    workflow.name,
+    workflow.trigger_type,
+    workflow.trigger_filter ?? null,
+    workflow.action_type,
+    workflow.action_config,
+    workflow.is_active ?? 1,
+    userId,
+    workflowId,
+  )
+}
+
+export function deleteWorkflow(
+  db: Database.Database,
+  userId: string,
+  workflowId: string,
+): void {
+  db.prepare('DELETE FROM workflows WHERE user_id = ? AND id = ?').run(userId, workflowId)
+}
+
+export function getActiveWorkflowsForTrigger(
+  db: Database.Database,
+  userId: string,
+  triggerType: string,
+  _sessionData?: Record<string, unknown>,
+): Workflow[] {
+  return db.prepare(`
+    SELECT *
+    FROM workflows
+    WHERE user_id = ? AND trigger_type = ? AND is_active = 1
+    ORDER BY created_at ASC, id ASC
+  `).all(userId, triggerType) as Workflow[]
+}
+
+export function insertWorkflowRun(
+  db: Database.Database,
+  input: { workflow_id: string; trigger_session_id?: string | null; status?: WorkflowRunStatus; result?: string | null },
+): number {
+  const result = db.prepare(`
+    INSERT INTO workflow_runs (workflow_id, trigger_session_id, status, result)
+    VALUES (?, ?, ?, ?)
+  `).run(
+    input.workflow_id,
+    input.trigger_session_id ?? null,
+    input.status ?? 'pending',
+    input.result ?? null,
+  )
+  return Number(result.lastInsertRowid)
+}
+
+export function updateWorkflowRun(
+  db: Database.Database,
+  runId: number,
+  input: { status: WorkflowRunStatus; result?: string | null },
+): void {
+  db.prepare(`
+    UPDATE workflow_runs
+    SET status = ?, result = ?, completed_at = datetime('now')
+    WHERE id = ?
+  `).run(input.status, input.result ?? null, runId)
+}
+
+export function getWorkflowRuns(
+  db: Database.Database,
+  workflowId: string,
+  limit: number,
+): WorkflowRun[] {
+  return db.prepare(`
+    SELECT *
+    FROM workflow_runs
+    WHERE workflow_id = ?
+    ORDER BY started_at DESC, id DESC
+    LIMIT ?
+  `).all(workflowId, limit) as WorkflowRun[]
+}
+
 export function getCostByProject(
   db: Database.Database,
   userId: string,
@@ -984,4 +1210,47 @@ export function getTeamWeeklyReport(
     GROUP BY tm.user_id, u.email, u.github_login
     ORDER BY (COALESCE(SUM(s.total_input_tokens), 0) + COALESCE(SUM(s.total_output_tokens), 0)) DESC, tm.joined_at ASC
   `).all(weekStart, weekStart, teamId) as TeamWeeklyReportMember[]
+}
+
+export function getSessionReplayEvents(
+  db: Database.Database,
+  userId: string,
+  sessionId: string,
+): Array<{
+  id: number
+  timestamp: string
+  type: string
+  role: string | null
+  content_preview: string | null
+  tool_name: string | null
+  input_tokens: number
+  output_tokens: number
+  model: string | null
+}> {
+  return db.prepare(`
+    SELECT
+      local_id AS id,
+      timestamp,
+      type,
+      role,
+      content_preview,
+      tool_name,
+      input_tokens,
+      output_tokens,
+      model
+    FROM cloud_events
+    WHERE user_id = ? AND session_id = ?
+    ORDER BY local_id ASC
+    LIMIT 2000
+  `).all(userId, sessionId) as Array<{
+    id: number
+    timestamp: string
+    type: string
+    role: string | null
+    content_preview: string | null
+    tool_name: string | null
+    input_tokens: number
+    output_tokens: number
+    model: string | null
+  }>
 }

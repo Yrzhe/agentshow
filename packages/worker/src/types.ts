@@ -1,6 +1,18 @@
 export type CloudSessionStatus = 'discovered' | 'active' | 'ended'
 export type TeamMemberRole = 'admin' | 'member'
 export type TeamInviteStatus = 'pending' | 'accepted' | 'expired'
+export type AuditActionType =
+  | 'file_edit'
+  | 'file_create'
+  | 'file_delete'
+  | 'command_exec'
+  | 'pr_create'
+  | 'pr_merge'
+  | 'git_push'
+  | 'tool_call'
+  | 'error'
+export type WorkflowActionType = 'webhook' | 'daemon_api'
+export type WorkflowRunStatus = 'pending' | 'running' | 'success' | 'failed'
 
 export interface SyncSession {
   session_id: string
@@ -182,4 +194,44 @@ export interface TeamWeeklyReportMember {
   input_tokens: number
   output_tokens: number
   tool_calls: number
+}
+
+export interface AuditLog {
+  id: number
+  user_id: string
+  session_id: string
+  project_slug: string | null
+  action_type: AuditActionType
+  action_detail: string | null
+  file_path: string | null
+  metadata: string | null
+  timestamp: string
+}
+
+export interface AuditStat {
+  action_type: AuditActionType
+  count: number
+}
+
+export interface Workflow {
+  id: string
+  user_id: string
+  name: string
+  trigger_type: string
+  trigger_filter: string | null
+  action_type: WorkflowActionType
+  action_config: string
+  is_active: number
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkflowRun {
+  id: number
+  workflow_id: string
+  trigger_session_id: string | null
+  status: WorkflowRunStatus
+  result: string | null
+  started_at: string
+  completed_at: string | null
 }

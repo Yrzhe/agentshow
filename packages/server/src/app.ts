@@ -6,11 +6,13 @@ import { runMigrations } from './db/migrate.js'
 import { loadEnv } from './env.js'
 import { authEmailRoutes } from './api/auth-email.js'
 import { authGithubRoutes } from './api/auth-github.js'
+import { auditRoutes } from './api/audit.js'
 import { budgetRoutes } from './api/budget.js'
 import { costAttributionRoutes } from './api/cost-attribution.js'
 import { dailySummaryRoutes } from './api/daily-summary.js'
 import { notesRoutes } from './api/notes.js'
 import { projectRoutes } from './api/projects.js'
+import { replayRoutes } from './api/replay.js'
 import { searchRoutes } from './api/search.js'
 import { sessionRoutes } from './api/sessions.js'
 import { summaryRoutes } from './api/summary.js'
@@ -20,6 +22,7 @@ import { teamRoutes } from './api/teams.js'
 import { tokenRoutes } from './api/tokens.js'
 import { usageDailyRoutes } from './api/usage.js'
 import { dashboardRoutes } from './dashboard/serve.js'
+import { workflowRoutes } from './api/workflows.js'
 import type { ServerAppType } from './middleware/auth.js'
 
 const env = loadEnv()
@@ -42,12 +45,15 @@ app.route('/api/sessions', summaryRoutes)
 app.route('/api/sessions', sessionRoutes)
 app.route('/api/daily-summary', dailySummaryRoutes)
 app.route('/api/projects', projectRoutes)
+app.route('/api/replay', replayRoutes)
 app.route('/api/teams', teamRoutes)
 app.route('/api/search', searchRoutes)
 app.route('/api/notes', notesRoutes)
+app.route('/api/audit', auditRoutes)
 app.route('/api/usage', usageDailyRoutes)
 app.route('/api/budget', budgetRoutes)
 app.route('/api/webhooks', webhookRoutes)
+app.route('/api/workflows', workflowRoutes)
 app.route('/api/cost', costAttributionRoutes)
 app.route('/', dashboardRoutes)
 

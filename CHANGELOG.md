@@ -48,6 +48,25 @@ All notable changes to this project will be documented in this file.
 - VPS deployment documentation (`docs/VPS_DEPLOYMENT.md`)
   - Docker and non-Docker deployment guides
   - Nginx reverse proxy, systemd service, backup, and security recommendations
+- Audit logs (Step 6c): track agent decisions for traceability
+  - `audit_logs` table with action types: file_edit, command_exec, pr_create, git_push, etc.
+  - Auto-extraction from sync events (tool_name → action_type mapping)
+  - `GET /api/audit` with filtering by session, project, action_type, file_path
+  - `GET /api/audit/file?path=X` for per-file operation history
+  - Dashboard Audit Log page with filters, stats cards, and action timeline
+- Cross-session workflows (Step 7b): automated session chaining
+  - `workflows` + `workflow_runs` tables (migration 0009)
+  - Workflow engine with trigger matching and variable template substitution
+  - Support for webhook and daemon_api action types
+  - Auto-trigger on session end alongside webhooks
+  - CRUD API + test trigger endpoint
+  - Dashboard Workflows page with config, execution history
+- Session replay (Step 7a): timeline playback of agent conversations
+  - `GET /api/replay/:sessionId` returns full timeline with elapsed_ms offsets
+  - Dashboard replay player with play/pause, speed control (1x/2x/5x/10x), progress bar
+  - User/assistant/tool message bubbles with fade-in animation
+  - "Replay" button added to session detail page
+  - Responsive replay controls with keyboard shortcuts
 
 ### Fixed
 - Sync datetime format mismatch: daemon stored space-separated timestamps while watermark used ISO 'T' format, causing sessions to never re-sync after initial upload. Fixed with `datetime()` SQL comparison and normalized watermark storage.

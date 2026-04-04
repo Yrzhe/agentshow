@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import type { SyncPayload } from '@agentshow/shared'
-import { getWatermark, insertCloudEvents, updateWatermark, upsertCloudNote, upsertCloudSession } from '../db/queries.js'
+import { getWatermark, insertAuditLog, insertCloudEvents, updateWatermark, upsertCloudNote, upsertCloudSession } from '../db/queries.js'
 import type { AppType } from '../index.js'
 import { triggerWebhooks } from '../lib/webhook-sender.js'
+import { executeWorkflows } from '../lib/workflow-engine.js'
 import { bearerAuth } from '../middleware/auth.js'
 
 export const syncRoutes = new Hono<AppType>()
@@ -21,13 +22,23 @@ syncRoutes.post('/', async (c) => {
   const events = payload.events.filter(
     (event) => event.local_id > watermark.last_event_local_id,
   )
-
-  await insertCloudEvents(c.env.DB, userId, events)
-
-  const notes = payload.notes ?? []
   const projectSlugMap = new Map(
     payload.sessions.map((s) => [s.session_id, s.project_slug]),
   )
+
+  await insertCloudEvents(c.env.DB, userId, events)
+  try {
+    for (const event of events) {
+      const audit = toAuditLog(event, projectSlugMap.get(event.session_id) ?? null)
+      if (audit) {
+        await insertAuditLog(c.env.DB, userId, audit)
+      }
+    }
+  } catch {
+    // Keep sync responses fast even if audit extraction fails.
+  }
+
+  const notes = payload.notes ?? []
   for (const note of notes) {
     const projectSlug = note.session_id
       ? projectSlugMap.get(note.session_id) ?? null
@@ -58,6 +69,12 @@ syncRoutes.post('/', async (c) => {
         tool_calls: session.tool_calls,
         task: session.task ?? null,
       }).catch(() => undefined)
+      void executeWorkflows(c.env.DB, userId, 'session.ended', {
+        session_id: session.session_id,
+        project_slug: session.project_slug,
+        status: session.status,
+        cwd: session.cwd,
+      }).catch(() => undefined)
     })
 
   return c.json({
@@ -68,3 +85,37 @@ syncRoutes.post('/', async (c) => {
     server_time: new Date().toISOString(),
   })
 })
+
+function toAuditLog(event: SyncPayload['events'][number], projectSlug: string | null) {
+  const toolName = String(event.tool_name ?? '').toLowerCase()
+  const preview = String(event.content_preview ?? '')
+  const filePath = extractFilePath(preview)
+  if (/(write|edit)/.test(toolName)) {
+    return { session_id: event.session_id, project_slug: projectSlug, action_type: inferFileAction(preview), action_detail: preview, file_path: filePath, metadata: JSON.stringify({ tool_name: event.tool_name }) }
+  }
+  if (/(bash|shell|command)/.test(toolName)) {
+    return { session_id: event.session_id, project_slug: projectSlug, action_type: inferCommandAction(preview), action_detail: preview, file_path: filePath, metadata: JSON.stringify({ tool_name: event.tool_name }) }
+  }
+  if (toolName) {
+    return { session_id: event.session_id, project_slug: projectSlug, action_type: 'tool_call' as const, action_detail: preview, file_path: filePath, metadata: JSON.stringify({ tool_name: event.tool_name }) }
+  }
+  return null
+}
+
+function inferFileAction(preview: string) {
+  if (/delete|remove/i.test(preview)) return 'file_delete' as const
+  if (/create|add file/i.test(preview)) return 'file_create' as const
+  return 'file_edit' as const
+}
+
+function inferCommandAction(preview: string) {
+  if (/pr create/i.test(preview)) return 'pr_create' as const
+  if (/pr merge/i.test(preview)) return 'pr_merge' as const
+  if (/git push/i.test(preview)) return 'git_push' as const
+  return 'command_exec' as const
+}
+
+function extractFilePath(preview: string): string | null {
+  const match = preview.match(/([A-Za-z0-9_./-]+\.[A-Za-z0-9]+|\/[A-Za-z0-9_./-]+)/)
+  return match ? match[1] : null
+}

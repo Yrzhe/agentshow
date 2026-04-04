@@ -1,4 +1,6 @@
 import type {
+  AuditLog,
+  AuditStat,
   CloudNote,
   CloudProject,
   CloudSession,
@@ -12,6 +14,9 @@ import type {
   TeamSession,
   TeamUsageSummary,
   TeamWeeklyReportMember,
+  Workflow,
+  WorkflowRun,
+  WorkflowRunStatus,
   SyncEvent,
   SyncNote,
   SyncSession,
@@ -86,6 +91,27 @@ type WebhookDeliveryRow = {
   success: number
   attempted_at: string
 }
+
+type AuditLogInput = {
+  session_id: string
+  project_slug?: string | null
+  action_type: AuditLog['action_type']
+  action_detail?: string | null
+  file_path?: string | null
+  metadata?: string | null
+}
+
+type WorkflowInput = {
+  id: string
+  name: string
+  trigger_type: string
+  trigger_filter?: string | null
+  action_type: Workflow['action_type']
+  action_config: string
+  is_active?: number
+}
+
+type WorkflowUpdate = Omit<WorkflowInput, 'id'>
 
 export async function upsertCloudSession(
   db: D1Database,
@@ -606,6 +632,214 @@ export async function getWebhookDeliveries(
   return results ?? []
 }
 
+export async function insertAuditLog(
+  db: D1Database,
+  userId: string,
+  log: AuditLogInput,
+): Promise<void> {
+  await db.prepare(`
+    INSERT INTO audit_logs (
+      user_id, session_id, project_slug, action_type, action_detail, file_path, metadata
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    userId,
+    log.session_id,
+    log.project_slug ?? null,
+    log.action_type,
+    log.action_detail ?? null,
+    log.file_path ?? null,
+    log.metadata ?? null,
+  ).run()
+}
+
+export async function getAuditLogs(
+  db: D1Database,
+  userId: string,
+  opts: { session_id?: string; project_slug?: string; action_type?: string; file_path?: string; limit?: number; offset?: number },
+): Promise<AuditLog[]> {
+  const conditions = ['user_id = ?']
+  const values: Array<string | number> = [userId]
+  if (opts.session_id) { conditions.push('session_id = ?'); values.push(opts.session_id) }
+  if (opts.project_slug) { conditions.push('project_slug = ?'); values.push(opts.project_slug) }
+  if (opts.action_type) { conditions.push('action_type = ?'); values.push(opts.action_type) }
+  if (opts.file_path) { conditions.push('file_path LIKE ?'); values.push(`%${opts.file_path}%`) }
+  const { results } = await db.prepare(`
+    SELECT *
+    FROM audit_logs
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY timestamp DESC, id DESC
+    LIMIT ? OFFSET ?
+  `).bind(...values, opts.limit ?? 100, opts.offset ?? 0).all<AuditLog>()
+  return results ?? []
+}
+
+export async function getAuditLogsByFile(
+  db: D1Database,
+  userId: string,
+  filePath: string,
+): Promise<AuditLog[]> {
+  const { results } = await db.prepare(`
+    SELECT *
+    FROM audit_logs
+    WHERE user_id = ? AND file_path = ?
+    ORDER BY timestamp DESC, id DESC
+  `).bind(userId, filePath).all<AuditLog>()
+  return results ?? []
+}
+
+export async function getAuditStats(
+  db: D1Database,
+  userId: string,
+  days: number,
+): Promise<AuditStat[]> {
+  const { results } = await db.prepare(`
+    SELECT action_type, COUNT(*) AS count
+    FROM audit_logs
+    WHERE user_id = ? AND timestamp >= datetime('now', '-' || ? || ' days')
+    GROUP BY action_type
+    ORDER BY count DESC, action_type ASC
+  `).bind(userId, days).all<AuditStat>()
+  return results ?? []
+}
+
+export async function createWorkflow(
+  db: D1Database,
+  userId: string,
+  workflow: WorkflowInput,
+): Promise<void> {
+  await db.prepare(`
+    INSERT INTO workflows (
+      id, user_id, name, trigger_type, trigger_filter, action_type, action_config, is_active, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).bind(
+    workflow.id,
+    userId,
+    workflow.name,
+    workflow.trigger_type,
+    workflow.trigger_filter ?? null,
+    workflow.action_type,
+    workflow.action_config,
+    workflow.is_active ?? 1,
+  ).run()
+}
+
+export async function getWorkflows(
+  db: D1Database,
+  userId: string,
+): Promise<Workflow[]> {
+  const { results } = await db.prepare(`
+    SELECT *
+    FROM workflows
+    WHERE user_id = ?
+    ORDER BY created_at DESC, id DESC
+  `).bind(userId).all<Workflow>()
+  return results ?? []
+}
+
+export async function getWorkflowById(
+  db: D1Database,
+  userId: string,
+  workflowId: string,
+): Promise<Workflow | null> {
+  const row = await db.prepare(`
+    SELECT *
+    FROM workflows
+    WHERE user_id = ? AND id = ?
+    LIMIT 1
+  `).bind(userId, workflowId).first<Workflow>()
+  return row ?? null
+}
+
+export async function updateWorkflow(
+  db: D1Database,
+  userId: string,
+  workflowId: string,
+  workflow: WorkflowUpdate,
+): Promise<void> {
+  await db.prepare(`
+    UPDATE workflows
+    SET name = ?, trigger_type = ?, trigger_filter = ?, action_type = ?, action_config = ?, is_active = ?, updated_at = datetime('now')
+    WHERE user_id = ? AND id = ?
+  `).bind(
+    workflow.name,
+    workflow.trigger_type,
+    workflow.trigger_filter ?? null,
+    workflow.action_type,
+    workflow.action_config,
+    workflow.is_active ?? 1,
+    userId,
+    workflowId,
+  ).run()
+}
+
+export async function deleteWorkflow(
+  db: D1Database,
+  userId: string,
+  workflowId: string,
+): Promise<void> {
+  await db.prepare('DELETE FROM workflows WHERE user_id = ? AND id = ?')
+    .bind(userId, workflowId)
+    .run()
+}
+
+export async function getActiveWorkflowsForTrigger(
+  db: D1Database,
+  userId: string,
+  triggerType: string,
+  _sessionData?: Record<string, unknown>,
+): Promise<Workflow[]> {
+  const { results } = await db.prepare(`
+    SELECT *
+    FROM workflows
+    WHERE user_id = ? AND trigger_type = ? AND is_active = 1
+    ORDER BY created_at ASC, id ASC
+  `).bind(userId, triggerType).all<Workflow>()
+  return results ?? []
+}
+
+export async function insertWorkflowRun(
+  db: D1Database,
+  input: { workflow_id: string; trigger_session_id?: string | null; status?: WorkflowRunStatus; result?: string | null },
+): Promise<number> {
+  const result = await db.prepare(`
+    INSERT INTO workflow_runs (workflow_id, trigger_session_id, status, result)
+    VALUES (?, ?, ?, ?)
+  `).bind(
+    input.workflow_id,
+    input.trigger_session_id ?? null,
+    input.status ?? 'pending',
+    input.result ?? null,
+  ).run()
+  return Number(result.meta.last_row_id)
+}
+
+export async function updateWorkflowRun(
+  db: D1Database,
+  runId: number,
+  input: { status: WorkflowRunStatus; result?: string | null },
+): Promise<void> {
+  await db.prepare(`
+    UPDATE workflow_runs
+    SET status = ?, result = ?, completed_at = datetime('now')
+    WHERE id = ?
+  `).bind(input.status, input.result ?? null, runId).run()
+}
+
+export async function getWorkflowRuns(
+  db: D1Database,
+  workflowId: string,
+  limit: number,
+): Promise<WorkflowRun[]> {
+  const { results } = await db.prepare(`
+    SELECT *
+    FROM workflow_runs
+    WHERE workflow_id = ?
+    ORDER BY started_at DESC, id DESC
+    LIMIT ?
+  `).bind(workflowId, limit).all<WorkflowRun>()
+  return results ?? []
+}
+
 export async function getCostByProject(
   db: D1Database,
   userId: string,
@@ -993,4 +1227,48 @@ export async function getTeamWeeklyReport(
     ORDER BY (COALESCE(SUM(s.total_input_tokens), 0) + COALESCE(SUM(s.total_output_tokens), 0)) DESC, tm.joined_at ASC
   `).bind(weekStart, weekStart, teamId).all<TeamWeeklyReportMember>()
   return results ?? []
+}
+
+export async function getSessionReplayEvents(
+  db: D1Database,
+  userId: string,
+  sessionId: string,
+): Promise<Array<{
+  id: number
+  timestamp: string
+  type: string
+  role: string | null
+  content_preview: string | null
+  tool_name: string | null
+  input_tokens: number
+  output_tokens: number
+  model: string | null
+}>> {
+  const { results } = await db.prepare(`
+    SELECT
+      local_id AS id,
+      timestamp,
+      type,
+      role,
+      content_preview,
+      tool_name,
+      input_tokens,
+      output_tokens,
+      model
+    FROM cloud_events
+    WHERE user_id = ? AND session_id = ?
+    ORDER BY local_id ASC
+    LIMIT 2000
+  `).bind(userId, sessionId).all()
+  return (results ?? []) as Array<{
+    id: number
+    timestamp: string
+    type: string
+    role: string | null
+    content_preview: string | null
+    tool_name: string | null
+    input_tokens: number
+    output_tokens: number
+    model: string | null
+  }>
 }

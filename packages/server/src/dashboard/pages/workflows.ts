@@ -1,0 +1,76 @@
+export function createWorkflowsPage(): string {
+  return String.raw`
+export async function renderWorkflowsPage(root) {
+  const state = { workflows: [], runs: {}, editingId: null, form: { name: '', trigger_type: 'session.ended', trigger_filter: '{"status":"ended"}', action_type: 'webhook', action_config: '{"url":"http://localhost:45677/trigger","method":"POST","body_template":"{\\"session_id\\":\\"{{session_id}}\\"}"}', is_active: true }, status: '' };
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
+
+  async function load() {
+    const response = await fetch('/api/workflows', { credentials: 'include' });
+    state.workflows = (await response.json()).workflows || [];
+    render();
+  }
+
+  async function saveWorkflow() {
+    const path = state.editingId ? '/api/workflows/' + state.editingId : '/api/workflows';
+    const method = state.editingId ? 'PUT' : 'POST';
+    const response = await fetch(path, {
+      method,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state.form),
+    });
+    if (!response.ok) throw new Error('save failed');
+    state.status = state.editingId ? 'Workflow updated.' : 'Workflow created.';
+    state.editingId = null;
+    await load();
+  }
+
+  async function loadRuns(id) {
+    if (state.runs[id]) { delete state.runs[id]; render(); return; }
+    const response = await fetch('/api/workflows/' + id + '/runs', { credentials: 'include' });
+    state.runs[id] = (await response.json()).runs || [];
+    render();
+  }
+
+  function renderRuns(id) {
+    const runs = state.runs[id];
+    if (!runs) return '';
+    return '<div class="panel" style="margin-top:12px"><h4>Runs</h4>' + runs.map((run) => '<div style="padding:8px 0;border-top:1px solid #30363d"><strong>' + escapeHtml(run.status) + '</strong><div class="muted">' + escapeHtml(run.started_at) + '</div><div>' + escapeHtml(run.result || '') + '</div></div>').join('') + '</div>';
+  }
+
+  function render() {
+    root.innerHTML = '<section><div class="page-header"><div><h2>Workflows</h2><p class="muted">Trigger follow-up actions when sessions end.</p></div></div>' +
+      '<div class="split-layout"><div class="panel"><h3>Configured workflows</h3>' +
+      (state.workflows.length ? state.workflows.map((workflow) => '<div class="panel" style="margin-top:12px;background:#0d1117"><div style="display:flex;justify-content:space-between;gap:12px"><div><strong>' + escapeHtml(workflow.name) + '</strong><div class="muted">' + escapeHtml(workflow.trigger_type) + ' → ' + escapeHtml(workflow.action_type) + '</div></div><span class="badge ' + (workflow.is_active ? 'active' : 'ended') + '">' + (workflow.is_active ? 'active' : 'inactive') + '</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="button button--ghost" data-action="edit" data-id="' + workflow.id + '">Edit</button><button class="button button--ghost" data-action="test" data-id="' + workflow.id + '">Test</button><button class="button button--ghost" data-action="runs" data-id="' + workflow.id + '">Runs</button><button class="button button--ghost" data-action="delete" data-id="' + workflow.id + '">Delete</button></div>' + renderRuns(workflow.id) + '</div>').join('') : '<p class="muted">No workflows configured yet.</p>') +
+      '</div><div class="panel"><h3>' + (state.editingId ? 'Edit workflow' : 'Add workflow') + '</h3><form id="workflow-form" style="display:grid;gap:12px">' +
+      '<input name="name" placeholder="Name" value="' + escapeHtml(state.form.name) + '" style="padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3">' +
+      '<input name="trigger_type" value="' + escapeHtml(state.form.trigger_type) + '" style="padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3">' +
+      '<textarea name="trigger_filter" rows="3" style="padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3">' + escapeHtml(state.form.trigger_filter) + '</textarea>' +
+      '<select name="action_type" style="padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3"><option value="webhook"' + (state.form.action_type === 'webhook' ? ' selected' : '') + '>webhook</option><option value="daemon_api"' + (state.form.action_type === 'daemon_api' ? ' selected' : '') + '>daemon_api</option></select>' +
+      '<textarea name="action_config" rows="5" style="padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3">' + escapeHtml(state.form.action_config) + '</textarea>' +
+      '<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="is_active"' + (state.form.is_active ? ' checked' : '') + '><span>Active</span></label>' +
+      '<div style="display:flex;gap:8px;align-items:center"><button class="button" type="submit">' + (state.editingId ? 'Update' : 'Create') + '</button><span class="muted">' + escapeHtml(state.status) + '</span></div>' +
+      '</form></div></div></section>';
+
+    root.querySelector('#workflow-form')?.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      state.form = { name: String(form.get('name') || ''), trigger_type: String(form.get('trigger_type') || ''), trigger_filter: String(form.get('trigger_filter') || ''), action_type: String(form.get('action_type') || 'webhook'), action_config: String(form.get('action_config') || ''), is_active: form.get('is_active') !== null };
+      try { await saveWorkflow(); } catch (error) { state.status = 'Failed to save workflow.'; render(); }
+    });
+    root.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', async function () {
+      const action = button.getAttribute('data-action');
+      const id = button.getAttribute('data-id');
+      try {
+        if (action === 'edit') { const workflow = state.workflows.find((item) => item.id === id); if (workflow) { state.editingId = workflow.id; state.form = { name: workflow.name, trigger_type: workflow.trigger_type, trigger_filter: workflow.trigger_filter || '{}', action_type: workflow.action_type, action_config: workflow.action_config, is_active: Boolean(workflow.is_active) }; render(); } }
+        if (action === 'test') await fetch('/api/workflows/' + id + '/test', { method: 'POST', credentials: 'include' }).then(() => load());
+        if (action === 'runs') await loadRuns(id);
+        if (action === 'delete') await fetch('/api/workflows/' + id, { method: 'DELETE', credentials: 'include' }).then(() => load());
+      } catch (error) { state.status = 'Action failed.'; render(); }
+    }));
+  }
+
+  await load();
+}
+`
+}

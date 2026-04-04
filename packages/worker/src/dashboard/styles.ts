@@ -275,6 +275,127 @@ tbody tr:last-child td { border-bottom: 0; }
   color: var(--green);
   background: rgba(63, 185, 80, 0.12);
 }
+.replay-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 0;
+  min-height: 240px;
+}
+.replay-event {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  opacity: 0;
+  animation: fadeInUp 0.3s ease forwards;
+}
+.replay-event--user {
+  flex-direction: row-reverse;
+}
+.replay-event__time {
+  min-width: 60px;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: monospace;
+}
+.replay-event__bubble {
+  max-width: 70%;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  position: relative;
+  overflow: hidden;
+}
+.replay-event__bubble::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent 30%);
+  animation: replayType 0.45s ease-out forwards;
+  pointer-events: none;
+}
+.replay-event--user .replay-event__bubble {
+  background: rgba(88,166,255,0.15);
+  border: 1px solid rgba(88,166,255,0.3);
+}
+.replay-event--assistant .replay-event__bubble {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+}
+.replay-event--tool .replay-event__bubble {
+  background: rgba(63,185,80,0.1);
+  border: 1px solid rgba(63,185,80,0.3);
+  font-size: 13px;
+}
+.replay-controls {
+  position: sticky;
+  bottom: 0;
+  background: rgba(13, 17, 23, 0.96);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.replay-progress {
+  flex: 1;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.replay-progress::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg,
+      rgba(88,166,255,0.35) 0%,
+      rgba(88,166,255,0.15) 18%,
+      rgba(88,166,255,0.4) 35%,
+      rgba(63,185,80,0.2) 52%,
+      rgba(88,166,255,0.45) 70%,
+      rgba(63,185,80,0.35) 100%);
+}
+.replay-progress__fill {
+  height: 100%;
+  background: var(--blue);
+  border-radius: 3px;
+  transition: width 0.1s;
+  position: relative;
+  z-index: 1;
+}
+.replay-speed {
+  display: flex;
+  gap: 4px;
+}
+.replay-speed button {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+.replay-speed button.active {
+  background: var(--blue);
+  border-color: var(--blue);
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes replayType {
+  from { transform: translateX(0); opacity: 0.55; }
+  to { transform: translateX(100%); opacity: 0; }
+}
 
 @media (max-width: 920px) {
   .shell { grid-template-columns: 1fr; }
@@ -286,6 +407,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .split-layout,
   .stats-grid { grid-template-columns: 1fr; }
   .content { padding: 1rem; }
+  .replay-controls { flex-wrap: wrap; }
+  .replay-event__bubble { max-width: 100%; }
 }
 
 @media (max-width: 640px) {

@@ -1,14 +1,17 @@
 import { sessionDetailPageJs } from './pages/session-detail.js'
+import { createAuditPage } from './pages/audit.js'
 import { createBudgetPage } from './pages/budget.js'
 import { createCostAttributionPage } from './pages/cost-attribution.js'
 import { sessionsPageJs } from './pages/sessions.js'
 import { createDailySummaryPage } from './pages/daily-summary.js'
 import { createProjectsPage } from './pages/projects.js'
+import { createReplayPage } from './pages/replay.js'
 import { searchPageJs } from './pages/search.js'
 import { createSettingsPage } from './pages/settings.js'
 import { createTeamsPage } from './pages/teams.js'
 import { createUsagePage } from './pages/usage.js'
 import { createWebhooksPage } from './pages/webhooks.js'
+import { createWorkflowsPage } from './pages/workflows.js'
 
 export const appJs = `const appRoot = document.getElementById('app')
 let cleanup = null
@@ -55,6 +58,8 @@ function renderNav(route) {
     ['#/budget', 'Budget'],
     ['#/cost', 'Cost Attribution'],
     ['#/webhooks', 'Webhooks'],
+    ['#/workflows', 'Workflows'],
+    ['#/audit', 'Audit Log'],
     ['#/settings', 'Settings'],
   ]
   aside.innerHTML = '<div class="brand">AgentShow<small>' + escapeHtml(currentUser?.github_login || 'Dashboard') + '</small></div><nav class="nav"></nav>'
@@ -85,6 +90,7 @@ async function renderRoute(route) {
   if (route.name === 'login') return renderLoginPage()
   if (route.name === 'daily-summary') { var d = document.createElement('div'); await renderDailySummaryPage(d); return d }
   if (route.name === 'search') return renderSearchPage(context)
+  if (route.name === 'replay') { var r = document.createElement('div'); await renderReplayPage(r, route.params[0]); return r }
   if (route.name === 'session') return renderSessionDetailPage(context)
   if (route.name === 'projects') { var p = document.createElement('div'); await renderProjectsPage(p); return p }
   if (route.name === 'teams') { var t = document.createElement('div'); await renderTeamsPage(t); return t }
@@ -93,6 +99,8 @@ async function renderRoute(route) {
   if (route.name === 'budget') { var b = document.createElement('div'); await renderBudgetPage(b); return b }
   if (route.name === 'cost') { var ca = document.createElement('div'); await renderCostAttributionPage(ca); return ca }
   if (route.name === 'webhooks') { var w = document.createElement('div'); await renderWebhooksPage(w); return w }
+  if (route.name === 'workflows') { var wf = document.createElement('div'); await renderWorkflowsPage(wf); return wf }
+  if (route.name === 'audit') { var a = document.createElement('div'); await renderAuditPage(a); return a }
   if (route.name === 'settings') { var s = document.createElement('div'); await renderSettingsPage(s); return s }
   return renderSessionsPage(context)
 }
@@ -233,6 +241,7 @@ function parseRoute(hash) {
   const parts = raw.split('?')
   const path = parts[0] || '/'
   const query = Object.fromEntries(new URLSearchParams(parts[1] || ''))
+  const replayMatch = path.match(/^\\/replay\\/([^/]+)$/)
   const sessionMatch = path.match(/^\\/session\\/([^/]+)$/)
   const teamMatch = path.match(/^\\/team\\/([^/]+)$/)
   if (path === '/login') return { name: 'login', params: [], query: query }
@@ -244,7 +253,10 @@ function parseRoute(hash) {
   if (path === '/budget') return { name: 'budget', params: [], query: query }
   if (path === '/cost') return { name: 'cost', params: [], query: query }
   if (path === '/webhooks') return { name: 'webhooks', params: [], query: query }
+  if (path === '/workflows') return { name: 'workflows', params: [], query: query }
+  if (path === '/audit') return { name: 'audit', params: [], query: query }
   if (path === '/settings') return { name: 'settings', params: [], query: query }
+  if (replayMatch) return { name: 'replay', params: [decodeURIComponent(replayMatch[1])], query: query }
   if (teamMatch) return { name: 'team', params: [decodeURIComponent(teamMatch[1])], query: query }
   if (sessionMatch) return { name: 'session', params: [decodeURIComponent(sessionMatch[1])], query: query }
   return { name: 'home', params: [], query: query }
@@ -321,10 +333,13 @@ ${searchPageJs}
 ${sessionDetailPageJs}
 ${createDailySummaryPage()}
 ${createProjectsPage()}
+${createReplayPage()}
 ${createSettingsPage()}
 ${createTeamsPage()}
 ${createUsagePage()}
 ${createBudgetPage()}
 ${createCostAttributionPage()}
 ${createWebhooksPage()}
+${createWorkflowsPage()}
+${createAuditPage()}
 `

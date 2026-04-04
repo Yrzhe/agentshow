@@ -100,35 +100,42 @@
 - [x] Dashboard 成本归因页面（条形图 + 表格）
 - [x] 点击项目展开 session 级成本明细
 
-### Step 6: 团队功能
+### Step 6: 团队功能 ✅
 
-#### 6a: 团队空间
-- [ ] 创建团队，邀请成员（通过邮箱）
-- [ ] 团队 Dashboard：看所有成员的 session 活动
-- [ ] 权限：admin（全看）、member（看自己 + 团队摘要）
+#### 6a: 团队空间 ✅
+- [x] 创建团队，邀请成员（通过邮箱），接受邀请
+- [x] 团队 Dashboard：所有成员的 session 活动、token 使用量
+- [x] 权限：admin（全看 + 管理成员）、member（看自己 + 团队摘要）
 
-#### 6b: 团队报告
-- [ ] 团队周报：每个成员的 agent 产出汇总
-- [ ] 成本分摊：谁花了多少
+#### 6b: 团队报告 ✅
+- [x] 团队周报：每个成员的 session 数、token、成本
+- [x] 成本分摊：成员贡献表格 + 条形图
 
-#### 6c: 审计日志
-- [ ] 记录 agent 的关键决策（文件修改、命令执行、PR 创建）
-- [ ] 可追溯："这个 bug 是哪个 session 引入的？"
+#### 6c: 审计日志 ✅
+- [x] 审计日志表 + 自动从 sync events 提取（tool_name → action_type 映射）
+- [x] 按 session/project/action_type/file_path 过滤查询
+- [x] 文件操作追溯：GET /api/audit/file?path=X
+- [x] Dashboard 审计日志页面
 
-### Step 7: 高级功能
+### Step 7: 高级功能 ✅
 
-#### 7a: Session 回放
-- [ ] 时间线回放 agent 的完整对话过程
-- [ ] 像 rrweb 一样的回放体验
+#### 7a: Session 回放 ✅
+- [x] 回放数据 API（完整事件时间线 + elapsed_ms 偏移）
+- [x] Dashboard 播放器：播放/暂停、1x-10x 速度、进度条
+- [x] 消息气泡（user/assistant/tool）+ 动画效果
+- [x] 从 session 详情页入口
 
-#### 7b: 跨 session 工作流
-- [ ] "Session A 完成后自动触发 Session B"
-- [ ] 基于 Skill 或 daemon API 实现
+#### 7b: 跨 session 工作流 ✅
+- [x] 工作流定义（trigger + filter + action）
+- [x] 工作流引擎（trigger 匹配 + 变量模板替换）
+- [x] Session 结束自动触发 + 执行历史记录
+- [x] Dashboard 工作流管理页面
 
-#### 7c: Webhook 集成
-- [ ] Session 结束 → 触发 webhook
-- [ ] 可接 Slack、Discord、飞书通知
-- [ ] 可触发 CI/CD
+#### 7c: Webhook 集成 ✅
+- [x] Webhook 配置 CRUD + secret header
+- [x] 异步投递引擎 + 投递日志
+- [x] Session 结束自动触发
+- [x] Dashboard Webhooks 管理页面 + 测试按钮
 
 ---
 
@@ -149,16 +156,18 @@
 - ~~5b: 预算告警~~ ✅
 - ~~5c: 成本归因~~ ✅
 
-### 当前轮次：团队 + Webhook + 部署
+### 已完成轮次：团队 + Webhook + 部署 ✅ (2026-04-04)
+- ~~7c: Webhook 集成~~ ✅
+- ~~Docker Phase 2: VPS 部署文档~~ ✅
+- ~~6a: 团队空间~~ ✅
+- ~~6b: 团队报告~~ ✅
 
-| # | 任务 | 优先级 | 工程师 | 状态 |
-|---|------|--------|--------|------|
-| A | 7c: Webhook 集成 (session 结束通知) | 高 | Codex | ���发中 |
-| B | Docker Phase 2: VPS 部���文档 | 中 | Codex | 开发中 |
-| C | 6a: 团队空间 (CRUD, 邀请, 权限) | 高 | Codex #2 | 开发中 |
-| D | 6b: 团队报告 (周报, 成本分摊) | 中 | Codex #2 | 开发中 |
+### 已完成轮次：高级功能 ✅ (2026-04-04)
+- ~~6c: 审计日志~~ ✅
+- ~~7a: Session 回放~~ ✅
+- ~~7b: 跨 session 工作流~~ ✅
 
-**A+B 和 C+D 并行开发中。**
+### 路线图全部完成 (Step 1-7) 
 
 ---
 
