@@ -126,7 +126,7 @@ webhookRoutes.post('/:id/test', async (c) => {
   if (!webhook) {
     return c.json({ error: 'Not found' }, 404)
   }
-  const body = await c.req.json<{ event?: string; data?: Record<string, unknown> }>()
+  const body = await c.req.json<{ event?: string; data?: Record<string, unknown> }>().catch(() => ({ event: undefined, data: undefined }))
   const event = body.event ?? 'test'
   const payload = {
     event,
