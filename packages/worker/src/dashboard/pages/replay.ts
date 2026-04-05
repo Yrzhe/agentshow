@@ -27,6 +27,21 @@ function replayEventContent(event) {
   return 'No preview available.'
 }
 
+function replayRenderMd(text) {
+  var s = escapeHtml(text)
+  s = s.replace(/\`\`\`([\s\S]*?)\`\`\`/g, function(_, code) {
+    return '<pre style="background:var(--panel-alt);border:1px dashed var(--border);padding:0.6rem 0.8rem;overflow-x:auto;font-size:12px;margin:0.5rem 0;"><code>' + code.trim() + '</code></pre>'
+  })
+  s = s.replace(/\`([^\`]+)\`/g, '<code style="background:var(--panel-alt);padding:0.1rem 0.3rem;font-size:12px;">$1</code>')
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  s = s.replace(/^### (.+)$/gm, '<div style="font-weight:700;font-size:14px;margin:0.6rem 0 0.3rem;">$1</div>')
+  s = s.replace(/^## (.+)$/gm, '<div style="font-weight:700;font-size:15px;margin:0.6rem 0 0.3rem;">$1</div>')
+  s = s.replace(/^# (.+)$/gm, '<div style="font-weight:700;font-size:16px;margin:0.6rem 0 0.3rem;">$1</div>')
+  s = s.replace(/^- (.+)$/gm, '<div style="padding-left:1rem;">• $1</div>')
+  s = s.replace(/\n/g, '<br>')
+  return s
+}
+
 function renderReplayEvent(event, index) {
   var kind = replayEventKind(event)
   var totalTokens = Number(event.input_tokens || 0) + Number(event.output_tokens || 0)
@@ -40,7 +55,7 @@ function renderReplayEvent(event, index) {
         '<strong>' + escapeHtml(replayEventLabel(event)) + '</strong>' +
         '<span class="muted" style="font-size:12px">' + escapeHtml(formatTimestamp(event.timestamp)) + '</span>' +
       '</div>' +
-      '<div>' + escapeHtml(replayEventContent(event)) + '</div>' +
+      '<div class="md-content" style="line-height:1.7;font-size:12px;">' + replayRenderMd(replayEventContent(event)) + '</div>' +
       '<div class="muted" style="margin-top:0.5rem;font-size:12px">' + escapeHtml(meta.join(' · ') || 'No token metadata') + '</div>' +
     '</div>' +
   '</article>'
@@ -54,6 +69,7 @@ export async function renderReplayPage(root, sessionId) {
     var session = payload.session || {}
     var stats = payload.stats || {}
     var durationMs = Number(stats.duration_ms || 0)
+    var BASE_INTERVAL_MS = 800
     var state = { isPlaying: false, playbackSpeed: 1, currentEventIndex: 0, playbackTimer: null, renderedCount: 0 }
 
     root.innerHTML = '<section>' +
@@ -97,7 +113,7 @@ export async function renderReplayPage(root, sessionId) {
     function updateProgress(index) {
       var current = index > 0 ? timeline[Math.min(index - 1, timeline.length - 1)] : null
       var elapsed = current ? Number(current.elapsed_ms || 0) : 0
-      var width = durationMs > 0 ? Math.min(100, Math.round((elapsed / durationMs) * 1000) / 10) : 0
+      var width = timeline.length > 0 ? Math.min(100, Math.round((index / timeline.length) * 1000) / 10) : 0
       progressFillEl.style.width = width + '%'
       counterEl.textContent = formatNumber(index) + ' / ' + formatNumber(timeline.length)
       currentTimeEl.textContent = formatReplayTime(elapsed) + ' / ' + formatReplayTime(durationMs)
@@ -135,9 +151,7 @@ export async function renderReplayPage(root, sessionId) {
         pauseReplay()
         return
       }
-      var currentEvent = timeline[state.currentEventIndex - 1]
-      var nextEvent = timeline[state.currentEventIndex]
-      var delay = Math.max((Number(nextEvent.elapsed_ms || 0) - Number(currentEvent.elapsed_ms || 0)) / state.playbackSpeed, 50)
+      var delay = Math.max(BASE_INTERVAL_MS / state.playbackSpeed, 50)
       state.playbackTimer = setTimeout(playNext, delay)
     }
 
@@ -183,9 +197,8 @@ export async function renderReplayPage(root, sessionId) {
     progressEl.addEventListener('click', function (event) {
       var rect = progressEl.getBoundingClientRect()
       var ratio = rect.width > 0 ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) : 0
-      var targetMs = durationMs * ratio
-      var targetIndex = timeline.findIndex(function (item) { return Number(item.elapsed_ms || 0) >= targetMs })
-      seekToIndex(targetIndex >= 0 ? targetIndex : timeline.length)
+      var targetIndex = Math.round(ratio * timeline.length)
+      seekToIndex(targetIndex)
     })
 
     updateProgress(0)

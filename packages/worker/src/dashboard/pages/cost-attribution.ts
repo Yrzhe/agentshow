@@ -55,7 +55,7 @@ function renderCostAttributionProjectTable(projects, expandedProject, sessionMap
       '</tr>'
       if (!isOpen) return row
       return row + '<tr><td colspan="4" style="padding:0">' +
-        '<div style="padding:0 1rem 1rem 1rem;background:rgba(255,255,255,0.02)">' +
+        '<div style="padding:0 1rem 1rem 1rem;background:var(--panel-alt)">' +
           '<table style="min-width:0"><thead><tr><th>Session</th><th>Started</th><th>Status</th><th>Tokens / cost</th></tr></thead><tbody>' +
             renderCostAttributionSessionRows(slug, sessionMap[slug]) +
           '</tbody></table>' +

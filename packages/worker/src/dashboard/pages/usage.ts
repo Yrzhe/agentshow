@@ -70,7 +70,7 @@ export async function renderUsagePage(root) {
         return '<div class="chart-row">' +
           '<div class="chart-row__label"><span>' + d.date + '</span><strong>' + formatNumber(total) + '</strong></div>' +
           '<div class="chart-bar" style="position:relative;">' +
-            '<div class="chart-bar__fill" style="width:' + pct + '%;background:linear-gradient(90deg, rgba(88,166,255,0.5) 0%, rgba(88,166,255,0.8) ' + (input > 0 ? Math.round(input / total * 100) : 50) + '%, rgba(63,185,80,0.8) 100%);"></div>' +
+            '<div class="chart-bar__fill" style="width:' + pct + '%;background:linear-gradient(90deg, var(--blue) 0%, var(--blue) ' + (input > 0 ? Math.round(input / total * 100) : 50) + '%, var(--green) 100%);"></div>' +
           '</div>' +
         '</div>';
       }).join('');

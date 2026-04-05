@@ -48,35 +48,48 @@ async function renderApp() {
 function renderNav(route) {
   const aside = document.createElement('aside')
   aside.className = 'sidebar'
-  const navItems = [
-    ['#/', 'Sessions'],
-    ['#/daily-summary', 'Daily Summary'],
-    ['#/search', 'Search'],
-    ['#/projects', 'Projects'],
-    ['#/teams', 'Teams'],
-    ['#/usage', 'Usage'],
-    ['#/budget', 'Budget'],
-    ['#/cost', 'Cost Attribution'],
-    ['#/webhooks', 'Webhooks'],
-    ['#/workflows', 'Workflows'],
-    ['#/audit', 'Audit Log'],
-    ['#/settings', 'Settings'],
+
+  const navGroups = [
+    { label: 'Monitor', items: [
+      ['#/', 'Sessions'],
+      ['#/daily-summary', 'Daily Summary'],
+      ['#/replay', 'Session Replay'],
+    ]},
+    { label: 'Analyze', items: [
+      ['#/search', 'Search'],
+      ['#/projects', 'Projects'],
+      ['#/usage', 'Usage'],
+      ['#/cost', 'Cost Attribution'],
+    ]},
+    { label: 'Manage', items: [
+      ['#/teams', 'Teams'],
+      ['#/budget', 'Budget'],
+      ['#/webhooks', 'Webhooks'],
+      ['#/workflows', 'Workflows'],
+    ]},
+    { label: 'System', items: [
+      ['#/audit', 'Audit Log'],
+      ['#/settings', 'Settings'],
+    ]},
   ]
-  aside.innerHTML = '<div class="brand">AgentShow<small>' + escapeHtml(currentUser?.github_login || 'Dashboard') + '</small></div><nav class="nav"></nav>'
-  const nav = aside.querySelector('.nav')
-  navItems.forEach(function (item) {
-    const link = document.createElement('a')
-    link.href = item[0]
-    link.textContent = item[1]
-    if (
-      route.name === item[0].slice(2).split('/')[0]
-      || (item[0] === '#/' && route.name === 'home')
-      || (item[0] === '#/teams' && route.name === 'team')
-    ) {
-      link.classList.add('active')
-    }
-    nav.appendChild(link)
+
+  var html = '<div class="brand">AGENTSHOW<small>' + escapeHtml(currentUser?.github_login || currentUser?.email || 'Dashboard') + '</small></div>'
+
+  navGroups.forEach(function (group) {
+    html += '<div class="nav-group"><div class="nav-group-label">' + escapeHtml(group.label) + '</div><nav class="nav">'
+    group.items.forEach(function (item) {
+      var isActive = false
+      var routeName = item[0].slice(2).split('/')[0] || 'home'
+      if (route.name === routeName) isActive = true
+      if (item[0] === '#/' && route.name === 'home') isActive = true
+      if (item[0] === '#/teams' && route.name === 'team') isActive = true
+      if (item[0] === '#/replay' && route.name === 'replay') isActive = true
+      html += '<a href="' + item[0] + '"' + (isActive ? ' class="active"' : '') + '>' + escapeHtml(item[1]) + '</a>'
+    })
+    html += '</nav></div>'
   })
+
+  aside.innerHTML = html
   return aside
 }
 
@@ -90,7 +103,10 @@ async function renderRoute(route) {
   if (route.name === 'login') return renderLoginPage()
   if (route.name === 'daily-summary') { var d = document.createElement('div'); await renderDailySummaryPage(d); return d }
   if (route.name === 'search') return renderSearchPage(context)
-  if (route.name === 'replay') { var r = document.createElement('div'); await renderReplayPage(r, route.params[0]); return r }
+  if (route.name === 'replay') {
+    if (route.params[0]) { var r = document.createElement('div'); await renderReplayPage(r, route.params[0]); return r }
+    return renderReplayListPage()
+  }
   if (route.name === 'session') return renderSessionDetailPage(context)
   if (route.name === 'projects') { var p = document.createElement('div'); await renderProjectsPage(p); return p }
   if (route.name === 'teams') { var t = document.createElement('div'); await renderTeamsPage(t); return t }
@@ -124,27 +140,26 @@ function renderLoginPage() {
   const wrapper = document.createElement('section')
   wrapper.className = 'login'
   wrapper.innerHTML = [
-    '<div class="card" style="max-width:380px;margin:80px auto;text-align:center">',
-    '  <h1 style="margin-bottom:4px">AgentShow</h1>',
+    '<div class="card" style="max-width:400px;margin:80px auto;text-align:center;padding:2rem;">',
+    '  <h1 style="margin:0 0 4px;font-size:18px;text-transform:uppercase;letter-spacing:0.08em;">AgentShow</h1>',
     '  <p class="muted" style="margin-bottom:24px">Sign in to your agent dashboard</p>',
-    '  <a href="/api/auth/github" style="display:block;padding:10px;background:#238636;color:#fff;border-radius:6px;text-decoration:none;margin-bottom:16px">Login with GitHub</a>',
-    '  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><hr style="flex:1;border:none;border-top:1px solid #30363d"><span class="muted">or</span><hr style="flex:1;border:none;border-top:1px solid #30363d"></div>',
+    '  <a href="/api/auth/github" style="display:block;padding:10px;background:var(--text);color:var(--bg);text-decoration:none;margin-bottom:16px;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Login with GitHub</a>',
+    '  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><hr style="flex:1;border:none;border-top:1px dashed var(--border)"><span class="muted" style="font-size:11px;">or</span><hr style="flex:1;border:none;border-top:1px dashed var(--border)"></div>',
     '  <div id="email-step-1">',
     '    <form id="email-form" style="display:flex;gap:8px">',
-    '      <input id="email-input" type="email" placeholder="your@email.com" required style="flex:1;padding:8px 12px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3">',
-    '      <button type="submit" style="padding:8px 16px;background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;cursor:pointer">Send code</button>',
+    '      <input id="email-input" type="email" placeholder="your@email.com" required style="flex:1;">',
+    '      <button type="submit">Send code</button>',
     '    </form>',
     '  </div>',
     '  <div id="email-step-2" style="display:none">',
-    '    <p class="muted" style="margin-bottom:8px">Enter the 6-digit code sent to <strong id="sent-to-email"></strong></p>',
+    '    <p class="muted" style="margin-bottom:8px;font-size:12px;">Enter the 6-digit code sent to <strong id="sent-to-email"></strong></p>',
     '    <form id="code-form" style="display:flex;gap:8px">',
-    '      <input id="code-input" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required style="flex:1;padding:8px 12px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;text-align:center;font-size:20px;letter-spacing:4px;font-family:monospace">',
-    '      <button type="submit" style="padding:8px 16px;background:#238636;color:#fff;border:1px solid #238636;border-radius:6px;cursor:pointer">Verify</button>',
+    '      <input id="code-input" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required style="flex:1;text-align:center;font-size:20px;letter-spacing:4px;">',
+    '      <button type="submit" style="background:var(--green);color:#fff;border-color:var(--green);">Verify</button>',
     '    </form>',
-    '    <a href="#" id="back-to-email" style="display:inline-block;margin-top:8px;font-size:12px;color:#8b949e">Use a different email</a>',
+    '    <a href="#" id="back-to-email" style="display:inline-block;margin-top:8px;font-size:11px;color:var(--muted);">Use a different email</a>',
     '  </div>',
-    '  <p id="email-status" class="muted" style="margin-top:12px;display:none"></p>',
-    '  <p class="muted" style="margin-top:24px;font-size:12px"><a href="https://github.com/yrzhe/agentshow" target="_blank" style="color:#8b949e">Deploy your own AgentShow</a></p>',
+    '  <p id="email-status" class="muted" style="margin-top:12px;display:none;font-size:12px;"></p>',
     '</div>',
   ].join('')
 
@@ -162,7 +177,7 @@ function renderLoginPage() {
         currentEmail = document.getElementById('email-input').value
         status.style.display = 'block'
         status.textContent = 'Sending code...'
-        status.style.color = '#8b949e'
+        status.style.color = 'var(--muted)'
         fetch('/api/auth/email/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -173,14 +188,14 @@ function renderLoginPage() {
             step2.style.display = 'block'
             sentTo.textContent = currentEmail
             status.textContent = 'Code sent! Check your inbox.'
-            status.style.color = '#3fb950'
+            status.style.color = 'var(--green)'
           } else {
             status.textContent = data.error || 'Failed to send'
-            status.style.color = '#f85149'
+            status.style.color = 'var(--danger)'
           }
         }).catch(function() {
           status.textContent = 'Network error'
-          status.style.color = '#f85149'
+          status.style.color = 'var(--danger)'
         })
       })
     }
@@ -191,7 +206,7 @@ function renderLoginPage() {
         e.preventDefault()
         var code = document.getElementById('code-input').value
         status.textContent = 'Verifying...'
-        status.style.color = '#8b949e'
+        status.style.color = 'var(--muted)'
         fetch('/api/auth/email/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -202,11 +217,11 @@ function renderLoginPage() {
             location.reload()
           } else {
             status.textContent = data.error || 'Invalid code'
-            status.style.color = '#f85149'
+            status.style.color = 'var(--danger)'
           }
         }).catch(function() {
           status.textContent = 'Network error'
-          status.style.color = '#f85149'
+          status.style.color = 'var(--danger)'
         })
       })
     }
@@ -225,6 +240,35 @@ function renderLoginPage() {
   return wrapper
 }
 
+async function renderReplayListPage() {
+  var data = await api('/sessions?status=ended')
+  var sessions = Array.isArray(data.sessions) ? data.sessions.slice(0, 20) : []
+  var page = document.createElement('section')
+  page.innerHTML = [
+    '<div class="page-header"><div><h1>Session Replay</h1><p>Select a session to replay its conversation.</p></div></div>',
+    '<div class="table-wrap"><table>',
+    '<thead><tr><th>Session</th><th>Project</th><th>Started</th><th>Tokens</th><th></th></tr></thead>',
+    '<tbody id="replay-list-body"></tbody>',
+    '</table></div>',
+  ].join('')
+  var body = page.querySelector('#replay-list-body')
+  sessions.forEach(function (s) {
+    var row = document.createElement('tr')
+    row.innerHTML = [
+      '<td><strong>' + escapeHtml(String(s.session_id).slice(0, 8)) + '</strong></td>',
+      '<td>' + escapeHtml(projectName(s.cwd, s.project_slug)) + '</td>',
+      '<td>' + escapeHtml(relativeTime(s.started_at)) + '</td>',
+      '<td>' + escapeHtml(formatNumber((s.total_input_tokens || 0) + (s.total_output_tokens || 0))) + '</td>',
+      '<td><a href="#/replay/' + encodeURIComponent(s.session_id) + '" style="text-decoration:none;color:var(--yellow);font-weight:700;font-size:11px;text-transform:uppercase;">Replay</a></td>',
+    ].join('')
+    body.appendChild(row)
+  })
+  if (!sessions.length) {
+    body.innerHTML = '<tr><td colspan="5" class="muted">No ended sessions available for replay.</td></tr>'
+  }
+  return page
+}
+
 function renderPlaceholderPage(title, description) {
   return renderEmptyState(title, description)
 }
@@ -232,7 +276,7 @@ function renderPlaceholderPage(title, description) {
 function renderEmptyState(title, description) {
   const section = document.createElement('section')
   section.className = 'empty'
-  section.innerHTML = '<div class="card"><h1>' + escapeHtml(title) + '</h1><p class="muted">' + escapeHtml(description) + '</p></div>'
+  section.innerHTML = '<div class="card" style="padding:2rem;"><h1 style="margin:0 0 0.5rem;">' + escapeHtml(title) + '</h1><p class="muted">' + escapeHtml(description) + '</p></div>'
   return section
 }
 
@@ -256,6 +300,7 @@ function parseRoute(hash) {
   if (path === '/workflows') return { name: 'workflows', params: [], query: query }
   if (path === '/audit') return { name: 'audit', params: [], query: query }
   if (path === '/settings') return { name: 'settings', params: [], query: query }
+  if (path === '/replay') return { name: 'replay', params: [], query: query }
   if (replayMatch) return { name: 'replay', params: [decodeURIComponent(replayMatch[1])], query: query }
   if (teamMatch) return { name: 'team', params: [decodeURIComponent(teamMatch[1])], query: query }
   if (sessionMatch) return { name: 'session', params: [decodeURIComponent(sessionMatch[1])], query: query }

@@ -1,9 +1,9 @@
 export function createBudgetPage(): string {
   return String.raw`
 function budgetTone(budget) {
-  if (budget.is_over_limit) return '#f85149';
-  if (budget.is_over_threshold) return '#d29922';
-  return '#3fb950';
+  if (budget.is_over_limit) return 'var(--danger)';
+  if (budget.is_over_threshold) return 'var(--yellow)';
+  return 'var(--green)';
 }
 
 function budgetProgress(budget) {
@@ -18,11 +18,11 @@ function renderBudgetCard(budget) {
     '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px">' +
       '<div><h3 style="margin-bottom:4px">' + escapeHtml(budget.budget_type === 'daily' ? 'Daily budget' : 'Monthly budget') + '</h3>' +
       '<p class="muted" style="margin:0">Alert at ' + threshold + '% of limit</p></div>' +
-      '<button type="button" data-delete-budget="' + escapeHtml(budget.budget_type) + '" style="padding:6px 10px;background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;cursor:pointer">Delete</button>' +
+      '<button type="button" data-delete-budget="' + escapeHtml(budget.budget_type) + '" style="padding:6px 10px;background:var(--panel-alt);color:var(--text);border:1px solid var(--border);border-radius:0;cursor:pointer">Delete</button>' +
     '</div>' +
     '<div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:8px"><strong>$' + Number(budget.current_usage_usd || 0).toFixed(2) + '</strong><span class="muted">of $' + Number(budget.limit_usd || 0).toFixed(2) + ' · ' + percent + '%</span></div>' +
-    '<div style="height:12px;background:#161b22;border-radius:999px;overflow:hidden;border:1px solid #30363d;margin-bottom:10px">' +
-      '<div style="height:100%;width:' + budgetProgress(budget) + '%;background:' + tone + ';border-radius:999px"></div>' +
+    '<div style="height:12px;background:var(--panel-alt);border-radius:0;overflow:hidden;border:1px solid var(--border);margin-bottom:10px">' +
+      '<div style="height:100%;width:' + budgetProgress(budget) + '%;background:' + tone + ';border-radius:0"></div>' +
     '</div>' +
     '<p style="margin:0;color:' + tone + '">' + (budget.is_over_limit ? 'Budget limit exceeded.' : (budget.is_over_threshold ? 'Budget warning threshold reached.' : 'Budget usage is within range.')) + '</p>' +
   '</div>';
@@ -36,11 +36,11 @@ function renderBudgetForm() {
   return '<form id="budget-form" class="panel" style="display:grid;gap:12px">' +
     '<div><h3 style="margin-bottom:4px">Set budget</h3><p class="muted" style="margin:0">Create or update a daily or monthly USD budget.</p></div>' +
     '<div class="stats-grid">' +
-      '<label style="display:grid;gap:6px"><span class="muted">Type</span><select name="budget_type" style="padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3"><option value="daily">Daily</option><option value="monthly">Monthly</option></select></label>' +
-      '<label style="display:grid;gap:6px"><span class="muted">Limit (USD)</span><input name="limit_usd" type="number" min="0.01" step="0.01" value="10" style="padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3"></label>' +
-      '<label style="display:grid;gap:6px"><span class="muted">Alert threshold</span><input name="alert_threshold" type="number" min="0.1" max="1" step="0.05" value="0.8" style="padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3"></label>' +
+      '<label style="display:grid;gap:6px"><span class="muted">Type</span><select name="budget_type" style="padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:0;color:var(--text)"><option value="daily">Daily</option><option value="monthly">Monthly</option></select></label>' +
+      '<label style="display:grid;gap:6px"><span class="muted">Limit (USD)</span><input name="limit_usd" type="number" min="0.01" step="0.01" value="10" style="padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:0;color:var(--text)"></label>' +
+      '<label style="display:grid;gap:6px"><span class="muted">Alert threshold</span><input name="alert_threshold" type="number" min="0.1" max="1" step="0.05" value="0.8" style="padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:0;color:var(--text)"></label>' +
     '</div>' +
-    '<div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><span id="budget-status" class="muted"></span><button type="submit" style="padding:8px 14px;background:#238636;color:#fff;border:1px solid #238636;border-radius:6px;cursor:pointer">Save budget</button></div>' +
+    '<div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><span id="budget-status" class="muted"></span><button type="submit" style="padding:8px 14px;background:var(--green);color:var(--panel);border:1px solid var(--green);border-radius:0;cursor:pointer">Save budget</button></div>' +
   '</form>';
 }
 

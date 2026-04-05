@@ -42,17 +42,32 @@ export function flexAuth(): MiddlewareHandler<ServerAppType> {
     }
 
     const sessionToken = getCookie(c, 'session')
-    if (!sessionToken) {
-      return c.json({ error: 'Unauthorized' }, 401)
+    if (sessionToken) {
+      const payload = await verifyJwt(sessionToken, env.JWT_SECRET)
+      if (payload?.user_id) {
+        c.set('userId', payload.user_id)
+        await next()
+        return
+      }
     }
 
-    const payload = await verifyJwt(sessionToken, env.JWT_SECRET)
-    if (!payload?.user_id) {
-      return c.json({ error: 'Unauthorized' }, 401)
+    // Local dev mode: auto-login when no OAuth is configured
+    if (!env.GITHUB_CLIENT_ID?.trim()) {
+      const db = c.get('db') as Database.Database
+      let row = db.prepare('SELECT id FROM users LIMIT 1').get() as { id: string } | undefined
+      if (!row) {
+        const id = 'local-dev-' + Date.now()
+        db.prepare(
+          "INSERT INTO users (id, email, github_login, created_at) VALUES (?, 'local@dev', 'local-dev', datetime('now'))",
+        ).run(id)
+        row = { id }
+      }
+      c.set('userId', row.id)
+      await next()
+      return
     }
 
-    c.set('userId', payload.user_id)
-    await next()
+    return c.json({ error: 'Unauthorized' }, 401)
   }
 }
 

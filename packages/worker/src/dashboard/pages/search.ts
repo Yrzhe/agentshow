@@ -13,7 +13,7 @@ export const searchPageJs = `async function renderSearchPage(context) {
     '</div>',
     '<div class="card" style="margin-bottom:1rem;">',
     '  <form id="search-form" class="toolbar" style="margin-bottom:0;">',
-    '    <input id="search-input" placeholder="Search content, tools, projects..." value="' + escapeHtml(initialQuery) + '" style="flex:1;min-width:220px;padding:0.8rem 1rem;border-radius:12px;border:1px solid var(--border);background:var(--panel-alt);color:var(--text)">',
+    '    <input id="search-input" placeholder="Search content, tools, projects..." value="' + escapeHtml(initialQuery) + '" style="flex:1;min-width:220px;">',
     '    <button type="submit">Search</button>',
     '  </form>',
     '</div>',

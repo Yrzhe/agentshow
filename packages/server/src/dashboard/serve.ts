@@ -1,10 +1,10 @@
 import { Hono } from 'hono'
-import type { ServerAppType } from '../middleware/auth.js'
+import type { ServerAppType as AppType } from '../middleware/auth.js'
 import { appJs } from './app.js'
 import { indexHtml } from './index-html.js'
 import { stylesCss } from './styles.js'
 
-export const dashboardRoutes = new Hono<ServerAppType>()
+export const dashboardRoutes = new Hono<AppType>()
 
 dashboardRoutes.get('/', (c) => c.html(indexHtml))
 

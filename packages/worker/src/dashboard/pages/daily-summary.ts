@@ -54,7 +54,7 @@ export async function renderDailySummaryPage(root) {
           '</div>' +
           '<div style="display:grid;gap:0.75rem;">' +
             (project.sessions || []).map(function (session) {
-              return '<div style="padding:0.9rem;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.02);">' +
+              return '<div style="padding:0.9rem;border:1px dashed var(--border);background:var(--panel-alt);">' +
                 '<div class="split" style="margin-bottom:0.45rem;">' +
                   '<span><strong>' + escapeHtml(formatTimestamp(session.started_at)) + '</strong></span>' +
                   '<span>' + statusBadge(session.status) + '</span>' +

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Local dev auto-login: skip authentication when `GITHUB_CLIENT_ID` is not configured
+  - Auto-creates `local-dev` user on first request if no users exist
+  - Applies to both `/api/auth/me` and `flexAuth()` middleware
+  - Safe for production: only activates when OAuth is unconfigured
+- Session replay Markdown rendering: code blocks, inline code, bold, headers, lists
+- Session replay constant-speed playback (0.8s/msg at 1x, not real elapsed time)
+  - Progress bar and seek now map linearly to event count
+
+### Changed
+- Dashboard redesigned with light brutalist theme (Paper MCP designs implemented)
+  - Color palette: cream background #FDFBF5, Space Mono monospace font, warm yellow #D4A017 accent
+  - All borders changed to dashed style, no rounded corners (border-radius: 0)
+  - Grouped sidebar navigation: Monitor / Analyze / Manage / System
+  - Session Replay moved to sidebar nav with session picker page
+  - All inline dark-theme colors replaced with CSS variable references
+  - Login page updated for light theme
+  - Server package dashboard synced with worker
+- Skill enhanced with `/dashboard` (opens cloud dashboard) and `/sync-status` commands
+
+### Added
 - Self-hosted Node.js server (`@agentshow/server`) as primary deployment target
   - Hono + @hono/node-server, better-sqlite3 with WAL mode
   - Auto-migration runner from SQL files

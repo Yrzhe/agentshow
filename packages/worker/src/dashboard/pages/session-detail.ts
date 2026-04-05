@@ -36,7 +36,7 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
     '    <div class="card-label">Summary</div>',
     session.summary
       ? ''
-      : '    <button id="gen-summary-btn" style="padding:4px 12px;background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;cursor:pointer;font-size:12px">Generate Summary</button>',
+      : '    <button id="gen-summary-btn" style="padding:4px 12px;background:var(--panel-alt);color:var(--text);border:1px dashed var(--border);cursor:pointer;font-size:12px">Generate Summary</button>',
     '  </div>',
     '  <div id="summary-content" style="line-height:1.6;">' + (session.summary ? escapeHtml(session.summary) : '<span class=\"muted\">No summary</span>') + '</div>',
     '</div>',
@@ -46,12 +46,14 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
     '  <div class="progress"><div class="progress-fill" style="width:' + inputRatio + '%"></div></div>',
     '  <div class="split"><span>Input ' + escapeHtml(formatNumber(stats.total_input_tokens || 0)) + '</span><span>Output ' + escapeHtml(formatNumber(stats.total_output_tokens || 0)) + '</span></div>',
     '</div>',
-    '<div class="card">',
-    '  <div class="page-header" style="margin-bottom:1rem;">',
-    '    <div><h1 style="font-size:1.1rem;margin:0;">Conversation</h1><p>Grouped adjacent turns for a cleaner timeline view.</p></div>',
+    '<div class="card" style="display:flex;flex-direction:column;">',
+    '  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">',
+    '    <div><div class="card-label">Conversation</div></div>',
     '    <button id="load-more-button" style="display:none;">Load Earlier</button>',
     '  </div>',
-    '  <div id="timeline" style="display:grid;gap:1rem;"></div>',
+    '  <div id="timeline-wrap" style="height:520px;overflow-y:auto;border:1px dashed var(--border);padding:1rem;">',
+    '    <div id="timeline" style="display:grid;gap:0.75rem;"></div>',
+    '  </div>',
     '</div>',
   ].join('')
 
@@ -86,6 +88,8 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
   const timeline = page.querySelector('#timeline')
   const loadMoreButton = page.querySelector('#load-more-button')
 
+  var timelineWrap = page.querySelector('#timeline-wrap')
+
   function renderTimeline() {
     timeline.replaceChildren()
 
@@ -106,14 +110,42 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
     })
 
     loadMoreButton.style.display = startIndex > 0 ? 'inline-flex' : 'none'
+    // scroll to bottom
+    timelineWrap.scrollTop = timelineWrap.scrollHeight
   }
 
   loadMoreButton.addEventListener('click', function () {
-    visibleCount = Math.min(groupedMessages.length, visibleCount + 12)
+    var prevHeight = timelineWrap.scrollHeight
+    visibleCount = Math.min(groupedMessages.length, visibleCount + 20)
     renderTimeline()
+    // keep scroll position at where older messages were loaded
+    timelineWrap.scrollTop = timelineWrap.scrollHeight - prevHeight
   })
 
   renderTimeline()
+
+  // Auto-refresh for active sessions every 10s
+  if (session.status === 'active') {
+    var lastEventCount = events.length
+    var refreshTimer = setInterval(async function () {
+      try {
+        var fresh = await api('/sessions/' + encodeURIComponent(sessionId))
+        var freshEvents = Array.isArray(fresh.events || fresh.recent_events) ? (fresh.events || fresh.recent_events) : []
+        if (freshEvents.length > lastEventCount) {
+          lastEventCount = freshEvents.length
+          var wasAtBottom = timelineWrap.scrollTop + timelineWrap.clientHeight >= timelineWrap.scrollHeight - 20
+          groupedMessages.length = 0
+          groupConversationEvents(freshEvents).forEach(function (g) { groupedMessages.push(g) })
+          visibleCount = Math.min(20, groupedMessages.length)
+          renderTimeline()
+          if (!wasAtBottom) {
+            // user was reading old messages, don't jump
+          }
+        }
+      } catch (e) { /* ignore refresh errors */ }
+    }, 10000)
+    context.setCleanup(function () { clearInterval(refreshTimer) })
+  }
 
   try {
     var notesData = await api('/notes?session_id=' + encodeURIComponent(session.session_id))
@@ -124,7 +156,7 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
         '<div class="card-label" style="margin-bottom:0.75rem;">Notes (' + notesList.length + ')</div>' +
         '<div style="display:grid;gap:0.75rem;">'
       notesList.forEach(function (note) {
-        notesHtml += '<div style="padding:0.75rem;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;">' +
+        notesHtml += '<div style="padding:0.75rem;background:var(--panel-alt);border:1px dashed var(--border);">' +
           '<div style="font-weight:600;margin-bottom:0.4rem;font-size:0.9rem;">' + escapeHtml(note.key) + '</div>' +
           '<div style="white-space:pre-wrap;line-height:1.6;font-size:0.85rem;">' + escapeHtml(note.content) + '</div>' +
           '<div class="meta" style="margin-top:0.4rem;">' + escapeHtml(formatTimestamp(note.updated_at)) + '</div>' +
@@ -204,8 +236,8 @@ function renderTimelineMessage(message) {
   const wrapper = document.createElement('article')
   const align = message.role === 'assistant' ? 'margin-left:auto;max-width:88%;' : 'max-width:88%;'
   const tone = message.role === 'assistant'
-    ? 'background:rgba(88,166,255,0.08);border:1px solid rgba(88,166,255,0.2);'
-    : 'background:rgba(255,255,255,0.03);border:1px solid var(--border);'
+    ? 'border:1px dashed var(--border);border-left:3px solid var(--yellow);'
+    : 'border:1px dashed var(--border);border-left:3px solid var(--border);'
   const toolBadges = message.tools.map(function (tool) {
     return '<span class="badge discovered" style="margin-right:0.4rem;margin-top:0.35rem;">' + escapeHtml(tool) + '</span>'
   }).join('')
@@ -213,20 +245,66 @@ function renderTimelineMessage(message) {
     ? message.contents.join('\\n\\n')
     : (message.tools.length ? 'Used ' + message.tools.join(', ') : 'No preview available.')
 
+  var isLong = content.length > 600
+  var preview = isLong ? truncate(content, 600) : content
+  var contentId = 'msg-' + Math.random().toString(36).slice(2, 8)
+
   wrapper.innerHTML = [
-    '<div class="card" style="' + align + tone + '">',
-    '  <div style="display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;margin-bottom:0.75rem;">',
-    '    <div><div class="card-label">' + escapeHtml(message.role === 'assistant' ? 'Agent Reply' : 'User Message') + '</div></div>',
-    '    <div class="meta">' + escapeHtml(formatTimestamp(message.timestamp)) + '</div>',
+    '<div style="' + tone + 'padding:0.65rem 0.85rem;">',
+    '  <div style="display:flex;justify-content:space-between;gap:0.5rem;align-items:center;margin-bottom:0.5rem;">',
+    '    <div class="card-label" style="margin:0;">' + escapeHtml(message.role === 'assistant' ? 'AGENT' : 'USER') + '</div>',
+    '    <div style="display:flex;gap:0.5rem;align-items:center;">',
+    '      <span class="meta">' + escapeHtml(formatNumber(message.tokens)) + ' tok</span>',
+    '      <span class="meta">' + escapeHtml(formatTimestamp(message.timestamp)) + '</span>',
+    '    </div>',
     '  </div>',
-    '  <div style="white-space:pre-wrap;line-height:1.6;">' + escapeHtml(truncate(content, 1200)) + '</div>',
-    (toolBadges ? '<div style="margin-top:0.75rem;">' + toolBadges + '</div>' : ''),
-    '  <div class="split" style="margin-top:0.85rem;">',
-    '    <span>' + escapeHtml(formatNumber(message.tokens)) + ' tokens</span>',
-    '    <span>' + escapeHtml(message.model || (message.tools.length ? 'tool-use' : '-')) + '</span>',
-    '  </div>',
+    '  <div id="' + contentId + '" class="md-content" style="line-height:1.7;font-size:12px;">' + renderMd(preview) + '</div>',
+    (isLong ? '<button type="button" data-expand="' + contentId + '" style="margin-top:0.4rem;font-size:11px;padding:0.2rem 0.6rem;border:1px dashed var(--border);background:var(--panel-alt);cursor:pointer;">Show full message</button>' : ''),
+    (toolBadges ? '<div style="margin-top:0.5rem;">' + toolBadges + '</div>' : ''),
     '</div>',
   ].join('')
+
+  if (isLong) {
+    var expandBtn = wrapper.querySelector('[data-expand]')
+    if (expandBtn) {
+      expandBtn.addEventListener('click', function () {
+        var target = document.getElementById(contentId)
+        if (!target) return
+        var expanded = expandBtn.getAttribute('data-expanded') === '1'
+        if (expanded) {
+          target.innerHTML = renderMd(preview)
+          expandBtn.textContent = 'Show full message'
+          expandBtn.setAttribute('data-expanded', '0')
+        } else {
+          target.innerHTML = renderMd(content)
+          expandBtn.textContent = 'Collapse'
+          expandBtn.setAttribute('data-expanded', '1')
+        }
+      })
+    }
+  }
+
   return wrapper
+}
+
+function renderMd(text) {
+  var s = escapeHtml(text)
+  // code blocks
+  s = s.replace(/\`\`\`([\\s\\S]*?)\`\`\`/g, function(_, code) {
+    return '<pre style="background:var(--panel-alt);border:1px dashed var(--border);padding:0.6rem 0.8rem;overflow-x:auto;font-size:12px;margin:0.5rem 0;"><code>' + code.trim() + '</code></pre>'
+  })
+  // inline code
+  s = s.replace(/\`([^\`]+)\`/g, '<code style="background:var(--panel-alt);padding:0.1rem 0.3rem;font-size:12px;">$1</code>')
+  // bold
+  s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
+  // headers
+  s = s.replace(/^### (.+)$/gm, '<div style="font-weight:700;font-size:14px;margin:0.6rem 0 0.3rem;">$1</div>')
+  s = s.replace(/^## (.+)$/gm, '<div style="font-weight:700;font-size:15px;margin:0.6rem 0 0.3rem;">$1</div>')
+  s = s.replace(/^# (.+)$/gm, '<div style="font-weight:700;font-size:16px;margin:0.6rem 0 0.3rem;">$1</div>')
+  // bullet lists
+  s = s.replace(/^- (.+)$/gm, '<div style="padding-left:1rem;">• $1</div>')
+  // line breaks
+  s = s.replace(/\\n/g, '<br>')
+  return s
 }
 `

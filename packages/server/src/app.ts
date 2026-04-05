@@ -37,6 +37,20 @@ app.use('*', async (c, next) => {
   await next()
 })
 app.get('/api/health', (c) => c.json({ status: 'ok' }))
+
+// Dev login: sets session cookie for the first user in DB (local testing only)
+app.get('/api/auth/dev-login', async (c) => {
+  const { signJwt } = await import('./lib/jwt.js')
+  const { setCookie } = await import('hono/cookie')
+  const localDb = c.get('db')
+  const localEnv = c.get('env')
+  const user = localDb.prepare('SELECT id, email, github_login FROM users LIMIT 1').get() as { id: string; email: string; github_login: string } | undefined
+  if (!user) return c.json({ error: 'No users in DB. Seed one first.' }, 404)
+  const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60
+  const token = await signJwt({ user_id: user.id, github_login: user.github_login ?? 'dev', exp }, localEnv.JWT_SECRET)
+  setCookie(c, 'session', token, { path: '/', httpOnly: true, sameSite: 'Lax', maxAge: 7 * 24 * 60 * 60 })
+  return c.redirect('/')
+})
 app.route('/api/auth/tokens', tokenRoutes)
 app.route('/api/auth', authGithubRoutes)
 app.route('/api/auth', authEmailRoutes)

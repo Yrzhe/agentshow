@@ -24,8 +24,8 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/server/node_modules ./packages/server/node_modules
 COPY --from=builder /app/package.json ./
 
-# Copy migrations directly (server/migrations is symlink to worker/migrations)
-COPY packages/worker/migrations ./packages/server/migrations
+# Copy migrations
+COPY packages/server/migrations ./packages/server/migrations
 
 EXPOSE 3000
 VOLUME /data

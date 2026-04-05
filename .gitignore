@@ -23,6 +23,10 @@ dist/
 # AgentShow runtime data
 .agentshow.json
 .mcp.json
+packages/*/data/
+*.db
+*.db-shm
+*.db-wal
 
 # Test
 coverage/

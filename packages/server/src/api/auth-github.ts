@@ -80,20 +80,32 @@ authGithubRoutes.get('/me', async (c) => {
   }
 
   const sessionToken = getCookie(c, 'session')
-  if (!sessionToken) {
-    return c.json({ error: 'Unauthorized' }, 401)
+  if (sessionToken) {
+    const payload = await verifyJwt(sessionToken, env.JWT_SECRET)
+    if (payload) {
+      const user = db.prepare(
+        'SELECT id AS user_id, email, github_login, github_avatar_url FROM users WHERE id = ? LIMIT 1',
+      ).get(payload.user_id) as CurrentUser | undefined
+      if (user) return c.json(user)
+    }
   }
 
-  const payload = await verifyJwt(sessionToken, env.JWT_SECRET)
-  if (!payload) {
-    return c.json({ error: 'Unauthorized' }, 401)
+  // Local dev mode: auto-login when no OAuth configured
+  if (!env.GITHUB_CLIENT_ID?.trim()) {
+    let user = db.prepare(
+      'SELECT id AS user_id, email, github_login, github_avatar_url FROM users LIMIT 1',
+    ).get() as CurrentUser | undefined
+    if (!user) {
+      const id = 'local-dev-' + Date.now()
+      db.prepare(
+        "INSERT INTO users (id, email, github_login, created_at) VALUES (?, 'local@dev', 'local-dev', datetime('now'))",
+      ).run(id)
+      user = { user_id: id, email: 'local@dev', github_login: 'local-dev', github_avatar_url: null }
+    }
+    return c.json(user)
   }
 
-  const user = db.prepare(
-    'SELECT id AS user_id, email, github_login, github_avatar_url FROM users WHERE id = ? LIMIT 1',
-  ).get(payload.user_id) as CurrentUser | undefined
-
-  return user ? c.json(user) : c.json({ error: 'Unauthorized' }, 401)
+  return c.json({ error: 'Unauthorized' }, 401)
 })
 
 interface UpsertUserInput {

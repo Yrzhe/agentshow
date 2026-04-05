@@ -90,13 +90,13 @@ function getEventContent(event: ConversationEvent): unknown {
 
 function getAssistantPreview(content: unknown): string | null {
   const text = getCombinedTextContent(content)
-  return text ? text.slice(0, 200) : null
+  return text ? text.slice(0, 8000) : null
 }
 
 function getUserPreview(content: unknown): string {
   const text = getCombinedTextContent(content)
   if (text) {
-    return text.slice(0, 200)
+    return text.slice(0, 8000)
   }
 
   if (Array.isArray(content) && content.some((item) => isAttachmentBlock(item))) {

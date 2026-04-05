@@ -32,14 +32,14 @@ export function renderLoginPage(root) {
       }).then(function(r) { return r.json(); }).then(function(data) {
         if (data.status === 'sent') {
           status.textContent = 'Check your email for a sign-in link!';
-          status.style.color = '#3fb950';
+          status.style.color = 'var(--green)';
         } else {
           status.textContent = data.error || 'Failed to send';
-          status.style.color = '#f85149';
+          status.style.color = 'var(--danger)';
         }
       }).catch(function() {
         status.textContent = 'Network error';
-        status.style.color = '#f85149';
+        status.style.color = 'var(--danger)';
       });
     });
   }
