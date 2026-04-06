@@ -38,7 +38,7 @@ function replayRenderMd(text) {
   s = s.replace(/^## (.+)$/gm, '<div style="font-weight:700;font-size:15px;margin:0.6rem 0 0.3rem;">$1</div>')
   s = s.replace(/^# (.+)$/gm, '<div style="font-weight:700;font-size:16px;margin:0.6rem 0 0.3rem;">$1</div>')
   s = s.replace(/^- (.+)$/gm, '<div style="padding-left:1rem;">• $1</div>')
-  s = s.replace(/\\n/g, '<br>')
+  s = s.replace(/\n/g, '<br>')
   return s
 }
 
@@ -90,18 +90,21 @@ export async function renderReplayPage(root, sessionId) {
         '<div class="panel"><span class="muted">Tool calls</span><h3>' + formatNumber(stats.tool_calls || 0) + '</h3></div>' +
       '</div>' +
       (session.task ? '<div class="panel" style="margin-bottom:1rem"><div class="card-label">Task</div><div style="white-space:pre-wrap;line-height:1.6">' + escapeHtml(session.task) + '</div></div>' : '') +
-      '<div class="panel" style="padding-bottom:0">' +
-        '<div class="page-header" style="margin-bottom:0.5rem"><div><h3 style="margin:0">Timeline</h3><p class="muted">Replay the full session event stream in chronological order.</p></div><div class="muted">' + escapeHtml(String((stats.unique_tools || []).join(', ') || 'No tools')) + '</div></div>' +
-        '<div id="replay-timeline" class="replay-timeline"></div>' +
-      '</div>' +
-      '<div class="replay-controls">' +
+      '<div class="replay-container">' +
+        '<div class="panel replay-timeline-panel">' +
+          '<div class="page-header" style="margin-bottom:0.5rem"><div><h3 style="margin:0">Timeline</h3><p class="muted">Replay the full session event stream in chronological order.</p></div><div class="muted">' + escapeHtml(String((stats.unique_tools || []).join(', ') || 'No tools')) + '</div></div>' +
+          '<div id="replay-timeline" class="replay-timeline"></div>' +
+        '</div>' +
+        '<div class="replay-controls">' +
         '<button id="replay-toggle">Play</button>' +
         '<div id="replay-counter" class="muted">0 / ' + formatNumber(timeline.length) + '</div>' +
         '<div id="replay-current-time" class="replay-event__time">' + escapeHtml(formatReplayTime(0)) + ' / ' + escapeHtml(formatReplayTime(durationMs)) + '</div>' +
         '<div id="replay-progress" class="replay-progress"><div id="replay-progress-fill" class="replay-progress__fill" style="width:0%"></div></div>' +
+        '<button id="replay-follow" class="active" style="font-size:11px;padding:2px 8px">Follow</button>' +
         '<div class="replay-speed">' + [1, 2, 5, 10].map(function (speed) {
           return '<button type="button" data-replay-speed="' + speed + '"' + (speed === 1 ? ' class="active"' : '') + '>' + speed + 'x</button>'
         }).join('') + '</div>' +
+        '</div>' +
       '</div>' +
     '</section>'
 
@@ -135,7 +138,10 @@ export async function renderReplayPage(root, sessionId) {
       }
     }
 
+    var followMode = true
+
     function scrollToCurrent(index) {
+      if (!followMode) return
       var node = timelineEl.querySelector('[data-replay-index="' + Math.max(0, index - 1) + '"]')
       if (node) node.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
@@ -185,6 +191,32 @@ export async function renderReplayPage(root, sessionId) {
       updateProgress(state.currentEventIndex)
       scrollToCurrent(state.currentEventIndex)
     }
+
+    var followEl = root.querySelector('#replay-follow')
+    var ignoreScroll = false
+    function setFollow(val) {
+      followMode = val
+      if (val) {
+        followEl.style.background = 'var(--yellow)'
+        followEl.style.borderColor = 'var(--yellow)'
+        followEl.style.color = '#fff'
+        ignoreScroll = true
+        var last = timelineEl.querySelector('[data-replay-index="' + Math.max(0, state.currentEventIndex - 1) + '"]')
+        if (last) last.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        setTimeout(function () { ignoreScroll = false }, 500)
+      } else {
+        followEl.style.background = 'transparent'
+        followEl.style.borderColor = 'var(--border)'
+        followEl.style.color = 'var(--text)'
+      }
+    }
+    setFollow(true)
+    followEl.addEventListener('click', function () { setFollow(!followMode) })
+    timelineEl.addEventListener('scroll', function () {
+      if (!followMode || ignoreScroll) return
+      var atBottom = timelineEl.scrollHeight - timelineEl.scrollTop - timelineEl.clientHeight < 80
+      if (!atBottom) setFollow(false)
+    })
 
     toggleEl.addEventListener('click', function () {
       if (state.isPlaying) pauseReplay()

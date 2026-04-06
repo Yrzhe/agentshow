@@ -135,7 +135,7 @@ function getCombinedTextContent(content: unknown): string | null {
     isRecord(item) && item.type === 'text' && typeof item.text === 'string' ? [item.text] : [],
   )
 
-  return texts.length > 0 ? texts.join(' ') : null
+  return texts.length > 0 ? texts.join('\n\n') : null
 }
 
 function getToolNames(content: unknown): string | null {

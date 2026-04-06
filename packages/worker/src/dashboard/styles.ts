@@ -374,12 +374,26 @@ tbody tr:last-child td { border-bottom: 0; }
   border-color: var(--green);
 }
 
+.replay-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 260px);
+  min-height: 300px;
+}
+.replay-timeline-panel {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
 .replay-timeline {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 1rem 0;
-  min-height: 240px;
+  padding: 0.5rem 0;
+  flex: 1;
+  overflow-y: auto;
 }
 .replay-event {
   display: flex;
@@ -426,7 +440,7 @@ tbody tr:last-child td { border-bottom: 0; }
   display: flex;
   align-items: center;
   gap: 1rem;
-  margin-top: 0.75rem;
+  flex-shrink: 0;
 }
 .replay-progress {
   flex: 1;
