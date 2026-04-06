@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Local dev auto-login: skip authentication when `GITHUB_CLIENT_ID` is not configured
+- Dashboard responsive design & mobile UX overhaul
+  - Hamburger menu overlay: sidebar now overlays content with fixed positioning + backdrop, instead of pushing content down
+  - Sessions mobile card layout: table converts to vertical card stack below 920px
+  - Project card stats horizontal: Sessions/Tokens/Updated displayed inline instead of 3-row grid
+  - Project card path scrollable: long cwd paths now horizontally scrollable instead of truncated
+  - Mobile audit: all table pages (cost attribution, audit, replay) get responsive treatment with proper overflow scrolling
+  - Card grid auto-fill: medium-width breakpoint uses `auto-fill, minmax(280px, 1fr)` for natural flow
+- Cache-Control: no-cache on dashboard static assets (app.js, styles.css) to prevent stale browser cache
+- Sessions page: project filter clear button (yellow badge with x)
+- Projects page: "ended" badge for inactive projects, active-first sorting by last activity
+
+### Changed
+- Dashboard redesigned with light brutalist theme (Paper MCP designs implemented)
   - Auto-creates `local-dev` user on first request if no users exist
   - Applies to both `/api/auth/me` and `flexAuth()` middleware
   - Safe for production: only activates when OAuth is unconfigured

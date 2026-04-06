@@ -73,7 +73,7 @@ function renderNav(route) {
     ]},
   ]
 
-  var html = '<div class="brand">AGENTSHOW<small>' + escapeHtml(currentUser?.github_login || currentUser?.email || 'Dashboard') + '</small></div>'
+  var html = '<div class="sidebar-header"><div class="brand">AGENTSHOW<small>' + escapeHtml(currentUser?.github_login || currentUser?.email || 'Dashboard') + '</small></div><button class="sidebar-toggle" aria-label="Menu">&#9776;</button></div>'
 
   navGroups.forEach(function (group) {
     html += '<div class="nav-group"><div class="nav-group-label">' + escapeHtml(group.label) + '</div><nav class="nav">'
@@ -90,6 +90,27 @@ function renderNav(route) {
   })
 
   aside.innerHTML = html
+  var backdrop = document.createElement('div')
+  backdrop.className = 'sidebar-backdrop'
+  function openSidebar() {
+    aside.classList.add('open')
+    backdrop.classList.add('visible')
+    document.body.style.overflow = 'hidden'
+  }
+  function closeSidebar() {
+    aside.classList.remove('open')
+    backdrop.classList.remove('visible')
+    document.body.style.overflow = ''
+  }
+  aside.querySelector('.sidebar-toggle').addEventListener('click', function () {
+    if (aside.classList.contains('open')) closeSidebar()
+    else openSidebar()
+  })
+  backdrop.addEventListener('click', closeSidebar)
+  aside.querySelectorAll('.nav a').forEach(function (link) {
+    link.addEventListener('click', closeSidebar)
+  })
+  aside.appendChild(backdrop)
   return aside
 }
 

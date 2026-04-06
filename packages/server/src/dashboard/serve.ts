@@ -10,12 +10,18 @@ dashboardRoutes.get('/', (c) => c.html(indexHtml))
 
 dashboardRoutes.get('/assets/app.js', (c) => {
   return c.body(appJs, {
-    headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
+    headers: {
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Cache-Control': 'no-cache',
+    },
   })
 })
 
 dashboardRoutes.get('/assets/styles.css', (c) => {
   return c.body(stylesCss, {
-    headers: { 'Content-Type': 'text/css; charset=utf-8' },
+    headers: {
+      'Content-Type': 'text/css; charset=utf-8',
+      'Cache-Control': 'no-cache',
+    },
   })
 })
