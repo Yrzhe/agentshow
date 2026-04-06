@@ -11,11 +11,10 @@ export const sessionsPageJs = `async function renderSessionsPage(context) {
     '  <div class="meta" id="sessions-meta"></div>',
     '</div>',
     '<div class="toolbar" id="session-filters"></div>',
-    '<div class="table-wrap sessions-table-desktop"><table>',
+    '<div class="table-wrap"><table>',
     '  <thead><tr><th>Session</th><th>Project</th><th>Status</th><th>Started</th><th>Tokens</th><th>Tool Calls</th><th>Summary</th></tr></thead>',
     '  <tbody id="sessions-body"></tbody>',
     '</table></div>',
-    '<div class="sessions-card-list" id="sessions-cards"></div>',
   ].join('')
 
   const filters = [
@@ -52,7 +51,6 @@ export const sessionsPageJs = `async function renderSessionsPage(context) {
 
   const data = await api('/sessions' + (params.toString() ? '?' + params.toString() : ''))
   const body = page.querySelector('#sessions-body')
-  const cardsWrap = page.querySelector('#sessions-cards')
   const sessions = Array.isArray(data.sessions) ? data.sessions : []
   page.querySelector('#sessions-meta').textContent = sessions.length + ' session' + (sessions.length === 1 ? '' : 's') + (projectFilter ? ' in ' + projectFilter : '')
 
@@ -60,7 +58,6 @@ export const sessionsPageJs = `async function renderSessionsPage(context) {
     const row = document.createElement('tr')
     row.innerHTML = '<td colspan="7" class="muted">No sessions found for this filter.</td>'
     body.appendChild(row)
-    cardsWrap.innerHTML = '<div class="card muted">No sessions found for this filter.</div>'
   }
 
   sessions.forEach(function (session) {
@@ -78,26 +75,6 @@ export const sessionsPageJs = `async function renderSessionsPage(context) {
       location.hash = '#/session/' + encodeURIComponent(session.session_id)
     })
     body.appendChild(row)
-
-    var card = document.createElement('div')
-    card.className = 'card session-card'
-    card.innerHTML = [
-      '<div class="session-card__header">',
-      '  <strong>' + escapeHtml(String(session.session_id || '').slice(0, 8)) + '</strong>',
-      '  ' + statusBadge(session.status),
-      '</div>',
-      '<div class="session-card__project" title="' + escapeHtml(session.cwd || session.project_slug) + '">' + escapeHtml(projectName(session.cwd, session.project_slug)) + '</div>',
-      '<div class="session-card__stats">',
-      '  <span>' + escapeHtml(relativeTime(session.started_at)) + '</span>',
-      '  <span>' + escapeHtml(formatNumber((session.total_input_tokens || 0) + (session.total_output_tokens || 0))) + ' tokens</span>',
-      '  <span>' + escapeHtml(formatNumber(session.tool_calls || 0)) + ' tools</span>',
-      '</div>',
-      '<div class="session-card__summary muted">' + escapeHtml(truncate(session.summary || 'No summary', 120)) + '</div>',
-    ].join('')
-    card.addEventListener('click', function () {
-      location.hash = '#/session/' + encodeURIComponent(session.session_id)
-    })
-    cardsWrap.appendChild(card)
   })
 
   if (filter === 'active') {

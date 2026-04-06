@@ -90,27 +90,12 @@ function renderNav(route) {
   })
 
   aside.innerHTML = html
-  var backdrop = document.createElement('div')
-  backdrop.className = 'sidebar-backdrop'
-  function openSidebar() {
-    aside.classList.add('open')
-    backdrop.classList.add('visible')
-    document.body.style.overflow = 'hidden'
-  }
-  function closeSidebar() {
-    aside.classList.remove('open')
-    backdrop.classList.remove('visible')
-    document.body.style.overflow = ''
-  }
   aside.querySelector('.sidebar-toggle').addEventListener('click', function () {
-    if (aside.classList.contains('open')) closeSidebar()
-    else openSidebar()
+    aside.classList.toggle('open')
   })
-  backdrop.addEventListener('click', closeSidebar)
   aside.querySelectorAll('.nav a').forEach(function (link) {
-    link.addEventListener('click', closeSidebar)
+    link.addEventListener('click', function () { aside.classList.remove('open') })
   })
-  aside.appendChild(backdrop)
   return aside
 }
 

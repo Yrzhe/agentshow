@@ -19,7 +19,7 @@ export const stylesCss = `@import url('https://fonts.googleapis.com/css2?family=
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; overflow-x: hidden; max-width: 100vw; }
 a { color: inherit; }
 button, input, select, textarea { font: inherit; }
 button {
@@ -526,7 +526,6 @@ tbody tr:last-child td { border-bottom: 0; }
   text-transform: none;
   letter-spacing: 0;
 }
-
 @media (max-width: 1200px) {
   .card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
@@ -548,53 +547,23 @@ tbody tr:last-child td { border-bottom: 0; }
   }
   .sidebar-toggle { display: block; }
   .sidebar .nav-group { display: none; }
-  .sidebar.open {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 1000;
-    height: 100vh;
-    overflow-y: auto;
-    border-right: 0;
-    border-bottom: 0;
-    padding: 0.75rem 1rem;
-  }
   .sidebar.open .nav-group { display: block; }
-  .sidebar-backdrop {
-    display: none;
-  }
-  .sidebar-backdrop.visible {
-    display: block;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 999;
-    background: rgba(0, 0, 0, 0.3);
-  }
   .brand { margin-bottom: 0; }
   .brand small { display: none; }
   .sidebar.open .brand small { display: block; }
-  .content { height: auto; overflow: visible; }
-  .card-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+  .content { height: auto; overflow-x: hidden; overflow-y: visible; }
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
   .split-layout,
   .stats-grid { grid-template-columns: 1fr; }
   .content { padding: 1rem; }
   .replay-controls { flex-wrap: wrap; }
   .replay-event__bubble { max-width: 100%; }
-  .sessions-table-desktop { display: none; }
-  .sessions-card-list { display: grid; gap: 0.75rem; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table { min-width: 0; }
   th, td { padding: 0.5rem 0.6rem; font-size: 12px; }
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
 
-.sessions-card-list {
-  display: none;
-}
 .session-card {
   cursor: pointer;
   display: grid;
