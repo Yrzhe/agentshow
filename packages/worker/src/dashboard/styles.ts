@@ -420,16 +420,13 @@ tbody tr:last-child td { border-bottom: 0; }
   font-size: 11px;
 }
 .replay-controls {
-  position: sticky;
-  bottom: 0;
-  background: rgba(253, 251, 245, 0.96);
-  backdrop-filter: blur(8px);
-  border-top: var(--border-style);
+  background: var(--panel);
+  border: var(--border-style);
   padding: 0.75rem 1rem;
   display: flex;
   align-items: center;
   gap: 1rem;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
 }
 .replay-progress {
   flex: 1;

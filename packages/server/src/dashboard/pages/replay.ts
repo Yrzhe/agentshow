@@ -68,7 +68,16 @@ export async function renderReplayPage(root, sessionId) {
     var timeline = Array.isArray(payload.timeline) ? payload.timeline : []
     var session = payload.session || {}
     var stats = payload.stats || {}
+    if (timeline.length > 0 && !Number(timeline[0].elapsed_ms)) {
+      var baseTime = new Date(timeline[0].timestamp || 0).getTime()
+      timeline.forEach(function (ev) {
+        ev.elapsed_ms = Math.max(0, new Date(ev.timestamp || 0).getTime() - baseTime)
+      })
+    }
     var durationMs = Number(stats.duration_ms || 0)
+    if (!durationMs && timeline.length > 0) {
+      durationMs = Number(timeline[timeline.length - 1].elapsed_ms || 0)
+    }
     var BASE_INTERVAL_MS = 800
     var state = { isPlaying: false, playbackSpeed: 1, currentEventIndex: 0, playbackTimer: null, renderedCount: 0 }
 

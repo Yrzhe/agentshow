@@ -29,16 +29,16 @@ function replayEventContent(event) {
 
 function replayRenderMd(text) {
   var s = escapeHtml(text)
-  s = s.replace(/\`\`\`([\s\S]*?)\`\`\`/g, function(_, code) {
+  s = s.replace(/\`\`\`([\\s\\S]*?)\`\`\`/g, function(_, code) {
     return '<pre style="background:var(--panel-alt);border:1px dashed var(--border);padding:0.6rem 0.8rem;overflow-x:auto;font-size:12px;margin:0.5rem 0;"><code>' + code.trim() + '</code></pre>'
   })
   s = s.replace(/\`([^\`]+)\`/g, '<code style="background:var(--panel-alt);padding:0.1rem 0.3rem;font-size:12px;">$1</code>')
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
   s = s.replace(/^### (.+)$/gm, '<div style="font-weight:700;font-size:14px;margin:0.6rem 0 0.3rem;">$1</div>')
   s = s.replace(/^## (.+)$/gm, '<div style="font-weight:700;font-size:15px;margin:0.6rem 0 0.3rem;">$1</div>')
   s = s.replace(/^# (.+)$/gm, '<div style="font-weight:700;font-size:16px;margin:0.6rem 0 0.3rem;">$1</div>')
   s = s.replace(/^- (.+)$/gm, '<div style="padding-left:1rem;">• $1</div>')
-  s = s.replace(/\n/g, '<br>')
+  s = s.replace(/\\n/g, '<br>')
   return s
 }
 
@@ -68,7 +68,16 @@ export async function renderReplayPage(root, sessionId) {
     var timeline = Array.isArray(payload.timeline) ? payload.timeline : []
     var session = payload.session || {}
     var stats = payload.stats || {}
+    if (timeline.length > 0 && !Number(timeline[0].elapsed_ms)) {
+      var baseTime = new Date(timeline[0].timestamp || 0).getTime()
+      timeline.forEach(function (ev) {
+        ev.elapsed_ms = Math.max(0, new Date(ev.timestamp || 0).getTime() - baseTime)
+      })
+    }
     var durationMs = Number(stats.duration_ms || 0)
+    if (!durationMs && timeline.length > 0) {
+      durationMs = Number(timeline[timeline.length - 1].elapsed_ms || 0)
+    }
     var BASE_INTERVAL_MS = 800
     var state = { isPlaying: false, playbackSpeed: 1, currentEventIndex: 0, playbackTimer: null, renderedCount: 0 }
 
