@@ -140,10 +140,9 @@ export async function renderReplayPage(root, sessionId) {
 
     var followMode = true
 
-    function scrollToCurrent(index) {
+    function scrollToCurrent() {
       if (!followMode) return
-      var node = timelineEl.querySelector('[data-replay-index="' + Math.max(0, index - 1) + '"]')
-      if (node) node.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      timelineEl.scrollTop = timelineEl.scrollHeight
     }
 
     function pauseReplay() {
@@ -193,29 +192,26 @@ export async function renderReplayPage(root, sessionId) {
     }
 
     var followEl = root.querySelector('#replay-follow')
-    var ignoreScroll = false
-    function setFollow(val) {
-      followMode = val
-      if (val) {
+    function updateFollowStyle() {
+      if (followMode) {
         followEl.style.background = 'var(--yellow)'
         followEl.style.borderColor = 'var(--yellow)'
         followEl.style.color = '#fff'
-        ignoreScroll = true
-        var last = timelineEl.querySelector('[data-replay-index="' + Math.max(0, state.currentEventIndex - 1) + '"]')
-        if (last) last.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-        setTimeout(function () { ignoreScroll = false }, 500)
       } else {
         followEl.style.background = 'transparent'
         followEl.style.borderColor = 'var(--border)'
         followEl.style.color = 'var(--text)'
       }
     }
-    setFollow(true)
-    followEl.addEventListener('click', function () { setFollow(!followMode) })
-    timelineEl.addEventListener('scroll', function () {
-      if (!followMode || ignoreScroll) return
-      var atBottom = timelineEl.scrollHeight - timelineEl.scrollTop - timelineEl.clientHeight < 80
-      if (!atBottom) setFollow(false)
+    function applyFollowMode() {
+      updateFollowStyle()
+      timelineEl.style.overflowY = followMode ? 'hidden' : 'auto'
+      if (followMode) timelineEl.scrollTop = timelineEl.scrollHeight
+    }
+    applyFollowMode()
+    followEl.addEventListener('click', function () {
+      followMode = !followMode
+      applyFollowMode()
     })
 
     toggleEl.addEventListener('click', function () {

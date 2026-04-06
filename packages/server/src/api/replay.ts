@@ -15,7 +15,8 @@ replayRoutes.get('/:sessionId', async (c) => {
   }
 
   const startedAt = new Date(session.started_at).getTime()
-  const events = getSessionReplayEvents(db, userId, sessionId)
+  const rawEvents = getSessionReplayEvents(db, userId, sessionId)
+  const events = deduplicateStreamingEvents(rawEvents)
   const timeline = events.map((event) => ({
     ...event,
     elapsed_ms: Math.max(0, new Date(event.timestamp).getTime() - startedAt),
@@ -44,6 +45,27 @@ replayRoutes.get('/:sessionId', async (c) => {
     stats,
   })
 })
+
+function deduplicateStreamingEvents(events: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const result: Array<Record<string, unknown>> = []
+  for (let i = 0; i < events.length; i++) {
+    const current = events[i]
+    const next = events[i + 1]
+    const currentContent = String(current.content_preview || '')
+    const nextContent = String(next?.content_preview || '')
+    if (
+      next &&
+      current.role === next.role &&
+      current.role === 'assistant' &&
+      currentContent.length > 0 &&
+      nextContent.startsWith(currentContent)
+    ) {
+      continue
+    }
+    result.push(current)
+  }
+  return result
+}
 
 function splitTools(value: string | null): string[] {
   return String(value || '')

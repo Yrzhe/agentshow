@@ -11,7 +11,12 @@ All notable changes to this project will be documented in this file.
   - Project card stats horizontal: Sessions/Tokens/Updated displayed inline instead of 3-row grid
   - Project card path scrollable: long cwd paths now horizontally scrollable instead of truncated
   - Mobile audit: all table pages (cost attribution, audit, replay) get responsive treatment with proper overflow scrolling
-  - Card grid auto-fill: medium-width breakpoint uses `auto-fill, minmax(280px, 1fr)` for natural flow
+  - Card grid auto-fill: medium-width breakpoint uses `auto-fill, minmax(240px, 1fr)` for natural flow
+- Replay deduplication: server-side filtering of incremental streaming events (keeps only final version)
+- Replay Follow button: toggle auto-scroll with yellow active indicator, hidden scrollbar in follow mode
+- Replay fixed layout: timeline scrolls internally with fixed-height container, controls pinned at bottom
+- Replay elapsed time: client-side calculation from timestamps when API returns 0
+- Replay Markdown fix: correct newline regex in String.raw template for proper line break rendering
 - Cache-Control: no-cache on dashboard static assets (app.js, styles.css) to prevent stale browser cache
 - Sessions page: project filter clear button (yellow badge with x)
 - Projects page: "ended" badge for inactive projects, active-first sorting by last activity
