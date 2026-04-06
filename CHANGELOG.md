@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **SSE real-time updates**: Sessions list and session detail pages now use Server-Sent Events (`/api/events`) instead of polling — data pushes to browser within 3s of change
+- SSE endpoint supports filtered subscriptions: `?watch=sessions&status=active` or `?watch=session&id=xxx`
+
+### Removed
+- `packages/worker/` — Cloudflare Worker package removed (project deploys to VPS, not CF Workers)
+- Frontend `setInterval` polling replaced by SSE (sessions list 30s → 3s, session detail 10s → 3s)
+
+### Fixed
+- Type errors in `replay.ts` — `Record<string, unknown>` spread now properly typed
+
+### Added (prior)
 - Dashboard responsive design & mobile UX overhaul
   - Hamburger menu overlay: sidebar now overlays content with fixed positioning + backdrop, instead of pushing content down
   - Sessions mobile card layout: table converts to vertical card stack below 920px

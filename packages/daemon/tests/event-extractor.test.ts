@@ -38,7 +38,7 @@ describe('extractEvents', () => {
       },
     }])
 
-    expect(event?.content_preview).toBe('让我检查一下 然后读取文件')
+    expect(event?.content_preview).toBe('让我检查一下\n\n然后读取文件')
   })
 
   it('extracts tool names from assistant content', () => {
@@ -114,7 +114,7 @@ describe('extractEvents', () => {
       },
     }])
 
-    expect(event?.content_preview).toBe('hello world')
+    expect(event?.content_preview).toBe('hello\n\nworld')
   })
 
   it('returns no content placeholder for empty user payloads', () => {
@@ -173,7 +173,7 @@ describe('extractEvents', () => {
     })
   })
 
-  it('truncates content_preview to 200 characters', () => {
+  it('preserves long content_preview up to 8000 characters', () => {
     const content = 'a'.repeat(250)
     const [event] = extractEvents([{
       type: 'assistant',
@@ -182,7 +182,7 @@ describe('extractEvents', () => {
       },
     }])
 
-    expect(event?.content_preview).toBe('a'.repeat(200))
+    expect(event?.content_preview).toBe('a'.repeat(250))
   })
 
   it('returns an empty array for empty input', () => {

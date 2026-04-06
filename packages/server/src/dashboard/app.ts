@@ -322,6 +322,19 @@ function setTimedRefresh(interval) {
   return function () { clearInterval(timer) }
 }
 
+function connectSSE(params, onEvent) {
+  var url = '/api/events?' + new URLSearchParams(params).toString()
+  var es = new EventSource(url)
+  var eventName = params.watch || 'sessions'
+  es.addEventListener(eventName, function (e) {
+    try { onEvent(JSON.parse(e.data)) } catch (err) { /* ignore parse errors */ }
+  })
+  es.onerror = function () {
+    // EventSource auto-reconnects; nothing extra needed
+  }
+  return function () { es.close() }
+}
+
 function shortProject(slug) {
   return String(slug || '').replace(/^-+/, '').slice(0, 40) || 'unknown'
 }

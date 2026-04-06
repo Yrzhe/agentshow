@@ -124,27 +124,25 @@ export const sessionDetailPageJs = `async function renderSessionDetailPage(conte
 
   renderTimeline()
 
-  // Auto-refresh for active sessions every 10s
+  // Live updates via SSE
   if (session.status === 'active') {
     var lastEventCount = events.length
-    var refreshTimer = setInterval(async function () {
-      try {
-        var fresh = await api('/sessions/' + encodeURIComponent(sessionId))
-        var freshEvents = Array.isArray(fresh.events || fresh.recent_events) ? (fresh.events || fresh.recent_events) : []
-        if (freshEvents.length > lastEventCount) {
-          lastEventCount = freshEvents.length
-          var wasAtBottom = timelineWrap.scrollTop + timelineWrap.clientHeight >= timelineWrap.scrollHeight - 20
-          groupedMessages.length = 0
-          groupConversationEvents(freshEvents).forEach(function (g) { groupedMessages.push(g) })
-          visibleCount = Math.min(20, groupedMessages.length)
-          renderTimeline()
-          if (!wasAtBottom) {
-            // user was reading old messages, don't jump
-          }
+    context.setCleanup(connectSSE({ watch: 'session', id: sessionId }, function (data) {
+      var freshEvents = Array.isArray(data.events || data.recent_events) ? (data.events || data.recent_events) : []
+      if (freshEvents.length > lastEventCount) {
+        lastEventCount = freshEvents.length
+        var wasAtBottom = timelineWrap.scrollTop + timelineWrap.clientHeight >= timelineWrap.scrollHeight - 20
+        groupedMessages.length = 0
+        groupConversationEvents(freshEvents).forEach(function (g) { groupedMessages.push(g) })
+        visibleCount = Math.min(20, groupedMessages.length)
+        renderTimeline()
+        if (data.stats) {
+          var freshTotal = (data.stats.total_input_tokens || 0) + (data.stats.total_output_tokens || 0)
+          var tokenCard = page.querySelector('.card-value')
+          if (tokenCard) tokenCard.textContent = formatNumber(freshTotal) + ' total'
         }
-      } catch (e) { /* ignore refresh errors */ }
-    }, 10000)
-    context.setCleanup(function () { clearInterval(refreshTimer) })
+      }
+    }))
   }
 
   try {

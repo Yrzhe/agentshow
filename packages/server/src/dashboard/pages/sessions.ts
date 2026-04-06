@@ -77,9 +77,36 @@ export const sessionsPageJs = `async function renderSessionsPage(context) {
     body.appendChild(row)
   })
 
-  if (filter === 'active') {
-    context.setCleanup(setTimedRefresh(30000))
-  }
+  var sseParams = { watch: 'sessions' }
+  if (filter !== 'all') sseParams.status = filter
+  if (projectFilter) sseParams.project_slug = projectFilter
+  context.setCleanup(connectSSE(sseParams, function (data) {
+    var freshSessions = Array.isArray(data.sessions) ? data.sessions : []
+    body.replaceChildren()
+    page.querySelector('#sessions-meta').textContent = freshSessions.length + ' session' + (freshSessions.length === 1 ? '' : 's') + (projectFilter ? ' in ' + projectFilter : '')
+    if (!freshSessions.length) {
+      var emptyRow = document.createElement('tr')
+      emptyRow.innerHTML = '<td colspan="7" class="muted">No sessions found for this filter.</td>'
+      body.appendChild(emptyRow)
+      return
+    }
+    freshSessions.forEach(function (session) {
+      var row = document.createElement('tr')
+      row.innerHTML = [
+        '<td><strong>' + escapeHtml(String(session.session_id || '').slice(0, 8)) + '</strong></td>',
+        '<td title="' + escapeHtml(session.cwd || session.project_slug) + '">' + escapeHtml(projectName(session.cwd, session.project_slug)) + '</td>',
+        '<td>' + statusBadge(session.status) + '</td>',
+        '<td>' + escapeHtml(relativeTime(session.started_at)) + '</td>',
+        '<td>' + escapeHtml(formatNumber((session.total_input_tokens || 0) + (session.total_output_tokens || 0))) + '</td>',
+        '<td>' + escapeHtml(formatNumber(session.tool_calls || 0)) + '</td>',
+        '<td class="muted" title="' + escapeHtml(session.summary || 'No summary') + '">' + escapeHtml(truncate(session.summary || 'No summary', 80)) + '</td>',
+      ].join('')
+      row.addEventListener('click', function () {
+        location.hash = '#/session/' + encodeURIComponent(session.session_id)
+      })
+      body.appendChild(row)
+    })
+  }))
 
   return page
 }

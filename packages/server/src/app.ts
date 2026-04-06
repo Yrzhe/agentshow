@@ -22,6 +22,7 @@ import { teamRoutes } from './api/teams.js'
 import { tokenRoutes } from './api/tokens.js'
 import { usageDailyRoutes } from './api/usage.js'
 import { dashboardRoutes } from './dashboard/serve.js'
+import { eventRoutes } from './api/events.js'
 import { workflowRoutes } from './api/workflows.js'
 import type { ServerAppType } from './middleware/auth.js'
 
@@ -69,6 +70,7 @@ app.route('/api/budget', budgetRoutes)
 app.route('/api/webhooks', webhookRoutes)
 app.route('/api/workflows', workflowRoutes)
 app.route('/api/cost', costAttributionRoutes)
+app.route('/api/events', eventRoutes)
 app.route('/', dashboardRoutes)
 
 export { app }

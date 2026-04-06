@@ -17,17 +17,17 @@ replayRoutes.get('/:sessionId', async (c) => {
   const startedAt = new Date(session.started_at).getTime()
   const rawEvents = getSessionReplayEvents(db, userId, sessionId)
   const events = deduplicateStreamingEvents(rawEvents)
-  const timeline = events.map((event) => ({
+  const timeline: Array<Record<string, unknown> & { elapsed_ms: number }> = events.map((event) => ({
     ...event,
-    elapsed_ms: Math.max(0, new Date(event.timestamp).getTime() - startedAt),
+    elapsed_ms: Math.max(0, new Date(String(event.timestamp)).getTime() - startedAt),
   }))
-  const unique_tools = Array.from(new Set(timeline.flatMap((event) => splitTools(event.tool_name))))
+  const unique_tools = Array.from(new Set(timeline.flatMap((e) => splitTools(String(e.tool_name ?? '')))))
   const stats = {
     total_events: timeline.length,
     duration_ms: Math.max(0, new Date(session.last_seen_at).getTime() - startedAt),
-    total_input_tokens: timeline.reduce((sum, event) => sum + Number(event.input_tokens || 0), 0),
-    total_output_tokens: timeline.reduce((sum, event) => sum + Number(event.output_tokens || 0), 0),
-    tool_calls: timeline.filter((event) => splitTools(event.tool_name).length > 0).length,
+    total_input_tokens: timeline.reduce((sum, e) => sum + Number(e.input_tokens || 0), 0),
+    total_output_tokens: timeline.reduce((sum, e) => sum + Number(e.output_tokens || 0), 0),
+    tool_calls: timeline.filter((e) => splitTools(String(e.tool_name ?? '')).length > 0).length,
     unique_tools,
   }
 
