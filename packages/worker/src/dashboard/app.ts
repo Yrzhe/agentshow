@@ -75,6 +75,7 @@ function renderNav(route) {
 
   var html = '<div class="sidebar-header"><div class="brand">AGENTSHOW<small>' + escapeHtml(currentUser?.github_login || currentUser?.email || 'Dashboard') + '</small></div><button class="sidebar-toggle" aria-label="Menu">&#9776;</button></div>'
 
+  html += '<div class="nav-dropdown">'
   navGroups.forEach(function (group) {
     html += '<div class="nav-group"><div class="nav-group-label">' + escapeHtml(group.label) + '</div><nav class="nav">'
     group.items.forEach(function (item) {
@@ -88,6 +89,7 @@ function renderNav(route) {
     })
     html += '</nav></div>'
   })
+  html += '</div>'
 
   aside.innerHTML = html
   aside.querySelector('.sidebar-toggle').addEventListener('click', function () {

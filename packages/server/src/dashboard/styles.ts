@@ -546,8 +546,20 @@ tbody tr:last-child td { border-bottom: 0; }
     justify-content: space-between;
   }
   .sidebar-toggle { display: block; }
-  .sidebar .nav-group { display: none; }
-  .sidebar.open .nav-group { display: block; }
+  .sidebar { position: relative; }
+  .sidebar .nav-dropdown { display: none; }
+  .sidebar.open .nav-dropdown {
+    display: block;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: var(--panel);
+    border-bottom: var(--border-style);
+    padding: 0.5rem 1rem 0.75rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  }
   .brand { margin-bottom: 0; }
   .brand small { display: none; }
   .sidebar.open .brand small { display: block; }
