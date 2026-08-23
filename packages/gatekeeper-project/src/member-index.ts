@@ -48,7 +48,7 @@ export class MemberProjectsDurableObject extends DurableObject<Cloudflare.Env> {
 
   async listProjectIds(): Promise<string[]> {
     return this.#entries()
-      .sort((a, b) => a.joined - b.joined)
+      .toSorted((a, b) => a.joined - b.joined)
       .map((entry) => entry.projectId);
   }
 

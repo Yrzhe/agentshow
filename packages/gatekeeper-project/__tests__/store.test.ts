@@ -116,7 +116,7 @@ describe("membership", () => {
   it("adds the member the invite named, and records the name they chose", async () => {
     const { store } = await projectWithBob();
     const members = await store.listMembers(alice.memberId);
-    expect(members.map((member) => member.displayName).sort()).toEqual(["Alice", "Bob"]);
+    expect(members.map((member) => member.displayName).toSorted()).toEqual(["Alice", "Bob"]);
     expect(members.find((member) => member.memberId === "bob")!.role).toBe("member");
   });
 
@@ -171,9 +171,9 @@ describe("file visibility", () => {
     await write(store, bob.memberId, "bob/draft.md", "bob draft");
 
     const forBob = await store.listFiles(bob.memberId, { limit: 10 });
-    expect(forBob.map((file) => file.path).sort()).toEqual(["bob/draft.md", "shared/plan.md"]);
+    expect(forBob.map((file) => file.path).toSorted()).toEqual(["bob/draft.md", "shared/plan.md"]);
     const forAlice = await store.listFiles(alice.memberId, { limit: 10 });
-    expect(forAlice.map((file) => file.path).sort())
+    expect(forAlice.map((file) => file.path).toSorted())
       .toEqual(["alice/draft.md", "shared/plan.md"]);
   });
 

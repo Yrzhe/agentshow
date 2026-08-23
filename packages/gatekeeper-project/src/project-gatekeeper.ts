@@ -22,7 +22,6 @@ import type {
   GatekeeperUserVerifier,
   ObservationAuthorizer,
   ObservationDescription,
-  ResourceConfiguratorFrame,
   ResourceDescription,
   SupportedResource,
   VendorDescription,
@@ -426,9 +425,9 @@ export class ProjectGatekeeper
       if (record.applied) applied.push(Number(key.slice(ACTION_PREFIX.length)));
     }
     if (applied.length <= RETAINED_APPLIED_ACTIONS) return;
-    for (const id of applied.sort((a, b) => a - b).slice(0, applied.length - RETAINED_APPLIED_ACTIONS)) {
-      this.ctx.storage.kv.delete(actionKey(id));
-    }
+    const oldest = applied.toSorted((a, b) => a - b)
+      .slice(0, applied.length - RETAINED_APPLIED_ACTIONS);
+    for (const id of oldest) this.ctx.storage.kv.delete(actionKey(id));
   }
 }
 

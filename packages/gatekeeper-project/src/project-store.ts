@@ -19,7 +19,6 @@ import {
   encodeContent,
   fileName,
   hashSecret,
-  indexedText,
   newId,
   notFound,
   parseSet,
@@ -711,16 +710,13 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
   // ---------------------------------------------------------------------------
 
   #quota(): ProjectQuota {
-    const number = (value: unknown, fallback: number) => {
-      const parsed = typeof value === "string" ? Number(value) : value;
-      return typeof parsed === "number" && Number.isFinite(parsed) && parsed > 0
-        ? Math.floor(parsed)
-        : fallback;
-    };
     return {
-      maxFileBytes: number(this.env.PROJECT_MAX_FILE_BYTES, DEFAULT_QUOTA.maxFileBytes),
-      maxProjectBytes: number(this.env.PROJECT_MAX_TOTAL_BYTES, DEFAULT_QUOTA.maxProjectBytes),
-      maxFileCount: number(this.env.PROJECT_MAX_FILE_COUNT, DEFAULT_QUOTA.maxFileCount),
+      maxFileBytes: configuredCount(
+        this.env.PROJECT_MAX_FILE_BYTES, DEFAULT_QUOTA.maxFileBytes),
+      maxProjectBytes: configuredCount(
+        this.env.PROJECT_MAX_TOTAL_BYTES, DEFAULT_QUOTA.maxProjectBytes),
+      maxFileCount: configuredCount(
+        this.env.PROJECT_MAX_FILE_COUNT, DEFAULT_QUOTA.maxFileCount),
     };
   }
 
@@ -871,6 +867,20 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
     return [...new Uint8Array(signature)]
       .map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
+}
+
+/**
+ * A quota from a `var`, which arrives as a string.
+ *
+ * Anything unusable falls back rather than throwing: a deployment with a mistyped var should hold to
+ * the documented limit, not refuse every write with a message about its own configuration. The
+ * deploy script rejects the mistake where someone can still fix it.
+ */
+function configuredCount(value: unknown, fallback: number): number {
+  const parsed = typeof value === "string" ? Number(value) : value;
+  return typeof parsed === "number" && Number.isFinite(parsed) && parsed > 0
+    ? Math.floor(parsed)
+    : fallback;
 }
 
 type CommentRow = {
