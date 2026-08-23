@@ -11,6 +11,15 @@
 
 子模块指向我们自己的核心 fork，改聊天可见性、协作模型，都打在 `Yrzhe/cloudflare-os` 的 `multiplayer` 上，不要直接在外壳里摊开官方源码。
 
+## 协作那一层在外壳里
+
+协作本身做成了一个我们自己的 Gatekeeper：`packages/gatekeeper-project`。project 的成员、共享文件、
+comment、skill、环境变量全在那里，chat 一点都不碰。设计和取舍写在
+[collaboration.md](collaboration.md)。
+
+所以核心那条线留给真正只能在核心做的事——左侧的 project 路由入口、右侧功能区的挂载点——而不是数据和
+权限。
+
 ## 现在可以动核心
 
 多人协作探索允许改 `cloudflare-os/` 里这些：
