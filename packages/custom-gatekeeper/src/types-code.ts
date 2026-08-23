@@ -1,3 +1,9 @@
+// Generated from types.d.ts by scripts/gatekeeper-types.ts. Do not edit by hand: run
+//   node scripts/gatekeeper-types.ts --write
+//
+// `getTypeScriptTypes()` returns this at runtime, where the declaration file no longer
+// exists. gatekeeper-types.test.ts fails when the two disagree.
+
 const TYPES_CODE = `/** Information supplied by the organization operating this CloudflareOS deployment. */
 export interface CustomDeploymentInfo {
   name: string;
