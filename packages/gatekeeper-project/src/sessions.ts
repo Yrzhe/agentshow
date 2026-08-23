@@ -472,8 +472,9 @@ export class ProjectWorkspaceSession extends RpcTarget implements ProjectWorkspa
           `Change ${file.path} in the project ${await this.#name()} from ` +
           `${describeVisibility(file.visibility)} to ${describeVisibility(wanted)}.` +
           (wanted === "public"
-            ? " Anyone holding the file's link will be able to read it, including people outside " +
-              "this deployment. Comments stay visible only to project members."
+            ? " Anyone who can reach this deployment will be able to read it once they hold the " +
+              "file's link, whether or not they are a member of this project. Comments stay " +
+              "visible only to project members."
             : ""),
         implementsRevert: true,
         awaitDecision: true,
