@@ -39,11 +39,22 @@ test("a declaration with no leading notes is mirrored whole", () => {
   assert.equal(agentFacingTypes(source), source);
 });
 
+// Evaluated rather than pattern-matched. Backticks, `${` and backslashes are exactly what a
+// declaration full of template-literal types contains, and the mirror is correct only if the string
+// it produces at runtime is the declaration it was generated from.
 test("the mirror escapes what would otherwise break out of the template literal", () => {
-  const rendered = renderTypesCode("type T = `${string}\\n`;\n");
-  assert.match(rendered, /type T = \\`\\\$\{string}\\\\n\\`;/);
-  assert.doesNotMatch(rendered.slice(rendered.indexOf("TYPES_CODE = `") + 14, -2), /[^\\]`/);
+  const declaration = "type T = `${string}\\n`;\nexport type U = `a\\\\b`;\n";
+  const body = literalBody(renderTypesCode(declaration));
+  assert.equal(new Function(`return \`${body}\`;`)(), declaration);
 });
+
+/** What `renderTypesCode` put inside the template literal it assigns to `TYPES_CODE`. */
+function literalBody(rendered: string): string {
+  const open = "const TYPES_CODE = `";
+  const start = rendered.indexOf(open);
+  assert.notEqual(start, -1, `no TYPES_CODE assignment in:\n${rendered}`);
+  return rendered.slice(start + open.length, rendered.lastIndexOf("`;"));
+}
 
 test("each mirrored package is declared once", () => {
   assert.equal(new Set(mirroredGatekeepers).size, mirroredGatekeepers.length);

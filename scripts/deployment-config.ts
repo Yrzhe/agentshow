@@ -80,6 +80,37 @@ export interface ContextConfig {
   artifacts?: { enabled?: boolean; namespace?: string };
 }
 
+/**
+ * What one project may hold.
+ *
+ * A deployment decision rather than a per-project one, and a paid one: file bytes land in the
+ * deployment's own R2 bucket. `null` on any field keeps the Worker's own default.
+ */
+export interface ProjectLimitsConfig {
+  /** Largest single file, in bytes. */
+  maxFileBytes?: number | null;
+  /** Total stored bytes across one project's files. */
+  maxTotalBytes?: number | null;
+  /** How many files one project may hold. */
+  maxFileCount?: number | null;
+}
+
+/** Project Gatekeeper storage, the sharing boundary its projects are scoped to, and its quotas. */
+export interface ProjectConfig {
+  /**
+   * Stable label isolating the projects belonging to this deployment. `null` scopes them to the
+   * deployment's public origin, matching what `context.sharingDomain` does for Context data.
+   *
+   * Changing it hides every existing project rather than breaking anything visibly, so it is worth
+   * setting explicitly on a deployment whose public origin may move.
+   */
+  sharingDomain: string | null;
+  /** Existing R2 bucket for file bytes, or `null` for Wrangler automatic provisioning. */
+  filesBucket: string | null;
+  /** Per-project quotas. Absent keeps the Worker's own defaults. */
+  limits?: ProjectLimitsConfig;
+}
+
 /** Worker telemetry. Maps onto wrangler's `observability` block. */
 export interface DeploymentObservabilityConfig {
   enabled: boolean;
@@ -111,6 +142,7 @@ export interface DeploymentConfig {
     workshop: { name: string };
     context: { name: string };
     scheduler: { name: string };
+    project: { name: string };
     customGatekeeper: { name: string };
     /** Only required when `errorReporting.enabled`. */
     errorReporter?: { name: string };
@@ -118,6 +150,7 @@ export interface DeploymentConfig {
   access: AccessConfig;
   aiGateway: AiGatewayConfigInput;
   context: ContextConfig;
+  project: ProjectConfig;
   /** Display text the example custom Gatekeeper serves to agents. */
   customGatekeeper: { name: string; message: string };
   /** Private explicit-issue destination. */
@@ -181,6 +214,7 @@ export interface GeneratedConfigs {
   workshop: ProdWranglerConfig;
   context: ProdWranglerConfig;
   scheduler: ProdWranglerConfig;
+  project: ProdWranglerConfig;
   customGatekeeper: ProdWranglerConfig;
   /** Absent when `errorReporting.enabled` is false. */
   errorReporter?: ProdWranglerConfig;
@@ -192,6 +226,7 @@ export interface BaseConfigs {
   workshop: ProdWranglerConfig;
   context: ProdWranglerConfig;
   scheduler: ProdWranglerConfig;
+  project: ProdWranglerConfig;
   customGatekeeper: ProdWranglerConfig;
   errorReporter: ProdWranglerConfig;
 }

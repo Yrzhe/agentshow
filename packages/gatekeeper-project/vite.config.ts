@@ -6,7 +6,7 @@
 // declines to cache such a task: `tsc` emits into `dist/`, which automatic tracking otherwise counts
 // as an input of the same package, and every `vitest run` rewrites the scratch paths below and reads
 // them back on the next run. vp forbids a task and a script sharing a name, so the `build` and
-// `test` scripts are gone -- `vp run -F custom-gatekeeper <task>` is what replaces them.
+// `test` scripts are gone -- `vp run -F gatekeeper-project <task>` is what replaces them.
 
 // This package's own `tsc` output. Package-relative, not workspace-wide: a sibling's `dist/` may be
 // a real input via its `exports`.
