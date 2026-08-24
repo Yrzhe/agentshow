@@ -25,7 +25,7 @@ import {
   widgetContentSecurityPolicy,
   widgetCookieName,
 } from "./model.js";
-import type { ProjectDurableObject } from "./project-store.js";
+import type { ProjectDurableObject, WidgetApiResult } from "./project-store.js";
 import { isWidgetStorePath, serveWidgetStore } from "./widget-store-api.js";
 import type { WidgetStoreDurableObject } from "./widget-store.js";
 import { runWidgetBackend, widgetBackendRequest, widgetIsolateName } from "./widget-runtime.js";
@@ -157,32 +157,7 @@ async function serveWidget(
     const opened = await store.openWidgetApi(widget.widgetId, offered);
     if (!opened.ok) return refusal(opened.status, opened.message);
     try {
-      const answer = opened.backend
-        ? await runWidgetBackend(
-          requireLoader(env),
-          {
-            isolateName: widgetIsolateName(
-              configuredDomain(env), opened.projectId, opened.widgetId, opened.backend.revision,
-              opened.principal),
-            source: opened.backend.source,
-            identity: {
-              projectId: opened.projectId,
-              widgetId: opened.widgetId,
-              principal: opened.principal,
-            },
-            envVars: opened.backend.envVars,
-            store: widgetStore(env, ctx, opened.projectId, opened.widgetId),
-          },
-          await widgetBackendRequest(request, widget.assetPath))
-        // No module of its own: the widget's store is what this Worker serves there itself, and
-        // nothing else under api/ is anybody's to answer.
-        : isWidgetStorePath(widget.assetPath)
-          ? await serveWidgetStore(
-            widgetStore(env, ctx, opened.projectId, opened.widgetId), request, widget.assetPath)
-          : refusal(
-            404,
-            `The widget ${opened.name} has no ${WIDGET_BACKEND_PATH}, so the only thing it ` +
-            `answers under api/ is its own store at api/${WIDGET_STORE_PATH}.`);
+      const answer = await widgetApiAnswer(request, env, ctx, widget.assetPath, opened);
       // Whatever answered, it is data for the widget's own script rather than a document the
       // browser should render on this origin -- so the same three headers either way, and a
       // widget's backend does not get to choose them for itself.
@@ -218,6 +193,53 @@ async function serveWidget(
     },
   });
   return withWidgetCookie(response, env, widget, found.renewedToken);
+}
+
+/**
+ * What answers one request under a widget's `api/`.
+ *
+ * Two possible backends, and which one applies is the widget's own business rather than this
+ * handler's: a widget that has written a `backend.js` owns the whole of its `api/`, and a widget
+ * that has not gets the built-in store on the one route that serves it. They never overlap, so no
+ * widget's routes depend on a file its callers cannot see.
+ *
+ * Both are handed the same store. That is what makes adding or removing a `backend.js` a change to
+ * what answers rather than a change to what is stored: the module reaches through `env.STORE`
+ * exactly the object `api/store` was serving the day before.
+ */
+async function widgetApiAnswer(
+  request: Request,
+  env: Cloudflare.Env,
+  ctx: ExecutionContext,
+  assetPath: string,
+  opened: Extract<WidgetApiResult, { ok: true }>,
+): Promise<Response> {
+  const store = widgetStore(env, ctx, opened.projectId, opened.widgetId);
+  if (opened.backend) {
+    return runWidgetBackend(
+      requireLoader(env),
+      {
+        isolateName: widgetIsolateName(
+          configuredDomain(env), opened.projectId, opened.widgetId, opened.backend.revision,
+          opened.principal),
+        source: opened.backend.source,
+        identity: {
+          projectId: opened.projectId,
+          widgetId: opened.widgetId,
+          principal: opened.principal,
+        },
+        envVars: opened.backend.envVars,
+        store,
+      },
+      await widgetBackendRequest(request, assetPath));
+  }
+  if (isWidgetStorePath(assetPath)) return serveWidgetStore(store, request, assetPath);
+  // Named rather than left blank: a widget calling a route nobody answers should be told what this
+  // one does answer, instead of being handed the store's own listing by accident.
+  return refusal(
+    404,
+    `The widget ${opened.name} has no ${WIDGET_BACKEND_PATH}, so the only thing it answers under ` +
+    `api/ is its own store at api/${WIDGET_STORE_PATH}.`);
 }
 
 /**

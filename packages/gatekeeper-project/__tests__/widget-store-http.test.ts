@@ -50,6 +50,24 @@ async function put(url: string, value: string, init: RequestInit = {}): Promise<
   return SELF.fetch(url, { ...init, method: "PUT", body: value });
 }
 
+/**
+ * Run `body` with the loader binding gone, which is the account this whole route exists for.
+ *
+ * The pool binds a real Worker Loader, because the isolate suites need one -- so taking it off the
+ * env the handler reads is how a suite gets at the deployment that has none. Restored afterwards,
+ * since every other suite in this pool is relying on it.
+ */
+async function withoutLoader<T>(body: () => Promise<T>): Promise<T> {
+  const holder = testEnv as unknown as Record<string, unknown>;
+  const loader = holder.WIDGET_LOADER;
+  delete holder.WIDGET_LOADER;
+  try {
+    return await body();
+  } finally {
+    holder.WIDGET_LOADER = loader;
+  }
+}
+
 describe("a widget's built-in store", () => {
   it("keeps what a widget puts there, with no backend module and no server code", async () => {
     const { widget: one } = await plainWidget();
@@ -360,18 +378,6 @@ describe("a widget that has written a backend", () => {
 });
 
 describe("a deployment with no Worker Loader", () => {
-  /** Run `body` with the loader binding gone, which is the account this route exists for. */
-  async function withoutLoader<T>(body: () => Promise<T>): Promise<T> {
-    const holder = testEnv as unknown as Record<string, unknown>;
-    const loader = holder.WIDGET_LOADER;
-    delete holder.WIDGET_LOADER;
-    try {
-      return await body();
-    } finally {
-      holder.WIDGET_LOADER = loader;
-    }
-  }
-
   it("serves a widget's frontend and its whole store regardless", async () => {
     const { widget: one } = await plainWidget();
     await withoutLoader(async () => {
