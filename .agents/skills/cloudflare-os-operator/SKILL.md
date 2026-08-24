@@ -182,7 +182,9 @@ Temporary `wrangler.prod.jsonc` files are generated implementation details. Neve
 
 Treat routing, authentication, and `/admin` authorization as separate controls.
 
-The route belongs to the Router alone. The other five Workers are generated with `workers_dev: false`, no routes, and Preview URLs off, so the Router's hostname is the single Access-protected entrance. Verify that in the generated configs rather than assuming it, and treat any additional public route on a backend Worker as an Access bypass.
+The Router's hostname is the single Access-protected entrance. Every backend Worker is generated with `workers_dev: false`, no routes, and Preview URLs off. Verify that in the generated configs rather than assuming it, and treat any additional public route on a backend Worker as an Access bypass.
+
+The email-code sign-in provider is the one deliberate exception, and only when `emailCodeIdp.enabled` is true. It takes a public route of its own and is intentionally *not* behind Access, because it is where Access sends browsers that have not signed in yet; a provider behind the application it authenticates for could never be reached. It reaches no other Worker and no application data, and its own exposure is bounded by `emailCodeIdp.allowedEmails`. Confirm it answers on a hostname of its own — the deploy refuses one that shares the Router's — and count it as expected rather than as a bypass.
 
 For production:
 
@@ -310,7 +312,8 @@ Success requires evidence for every applicable item:
 - Access redirects/denies unauthenticated users, allows the intended identity, and denies the negative test identity.
 - `/admin` allows an administrator and denies an authenticated non-administrator.
 - Signup, connector, Context, and Gatekeeper policies match the approved decisions.
-- Workshop, Context, Scheduler, Custom Gatekeeper, and Error Reporter have no public routes and no Preview URLs. Each would be an unauthenticated path around the Router's Access application.
+- Workshop, Context, Scheduler, Custom Gatekeeper, and Error Reporter have no public routes and no Preview URLs. Each would be an unauthenticated path around the Router's Access application. The email-code sign-in provider, when enabled, is the one expected public route besides the Router's, and is expected to be outside Access.
+- When the email-code provider is enabled: a test code arrives containing no link, an address outside `emailCodeIdp.allowedEmails` is sent nothing, and an existing user's chats and an administrator's `/admin` both survive the switch. The last is the email-claim check, and it fails silently rather than loudly.
 - Existing data remains visible; newly created data persists across a safe reload or redeploy test.
 - Context Artifacts is absent when disabled, or an approved Git-backed collection can be populated and refreshed in the intended stable namespace when enabled.
 - Each Workshop service binding targets the intended service, entrypoint, and props, and each Router service binding targets the intended service with no entrypoint. The Context binding's `sharingDomain` prop matches the boundary the existing collections live under.

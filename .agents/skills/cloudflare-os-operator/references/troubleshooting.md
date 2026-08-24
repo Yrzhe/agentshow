@@ -152,7 +152,9 @@ Narrowing the application to one unproven provider is a lockout risk, and `acces
 
 `scripts/deploy.ts` writes `preview_urls: false` on all Workers other than the router worker, because a Preview URL is an unauthenticated path around the Access-protected origin. Verify that in the derived config rather than assuming it, check the current Wrangler docs for changed defaults, and never patch the generated config to alter one.
 
-If a Worker other than the Router is publicly reachable, that is an Access bypass, not a routing nicety: the derived config gives the other five `workers_dev: false` and no routes, so an unexpected route means something outside this deploy created it.
+If a backend Worker is publicly reachable, that is an Access bypass, not a routing nicety: the derived config gives every one of them `workers_dev: false` and no routes, so an unexpected route means something outside this deploy created it.
+
+The email-code sign-in provider is the single exception, and only when `emailCodeIdp.enabled` is true. Being outside Access is what it is for — Access sends unauthenticated browsers to it — so finding it publicly reachable is correct. Check instead that it answers on a hostname of its own, that `emailCodeIdp.allowedEmails` is not `["*"]` unless the deployment intends open sign-up, and that it holds no binding to any other Worker.
 
 ## Storage And Missing Data
 

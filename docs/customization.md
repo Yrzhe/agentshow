@@ -42,7 +42,7 @@ Secrets are never valid values in this file. Install them interactively with Wra
 
 ### Workers and routing
 
-The deployment is seven Workers. Keep their names unique: service bindings use these names, so update and deploy them together.
+The deployment is seven Workers, or eight with the optional [email-code sign-in provider](#email-codes-without-the-allowlist). Keep their names unique: service bindings use these names, so update and deploy them together.
 
 | Worker | Role |
 | --- | --- |
@@ -126,17 +126,46 @@ Signing in with an emailed code is still available. What has to change is who se
 
 A scanner spends links. It has nothing to spend in a bare six digits. That is the whole mechanism, and reading it that way is what keeps the next choice from repeating this one: a provider that mails a magic link, or that mails a code *and* a link as Cloudflare's does, reproduces this failure under a new name. Vendor reputation is not the variable.
 
-So point the Access application at an OIDC provider whose passwordless email you control, and set it to send a code:
+So the Access application needs to point at an OIDC provider whose email you control. Any [supported provider](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/) whose passwordless email can be set to send a code rather than a magic link will do, and this repository also ships one, so that a deployment does not have to take on a second vendor to fix a mail problem.
 
-1. Stand up the provider and configure its passwordless email connection for **code**, not magic link. In [Auth0](https://auth0.com/docs/authenticate/passwordless) this is the passwordless email connection's delivery setting; a self-hosted OIDC server works equally well when you own the templates outright.
-2. Send yourself a test code and read the raw message before going further. It should contain no `<a href` and no tracking or unsubscribe URL. This is the acceptance test for the whole change, and it takes a minute.
-3. Add the provider under **Zero Trust → Integrations → Identity providers**, using its named integration or [generic OIDC](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/generic-oidc/). Request the `email` scope, and confirm the provider returns an `email` claim.
-4. On the Access application's **Authentication** tab, turn off **Accept all available identity providers** and select only the new one, so nobody is offered the broken option. **Apply instant authentication** then sends users straight there instead of showing the provider chooser.
-5. Sign in as an existing non-admin user and as an admin, and confirm the existing chats and `/admin` are both still there. That is what proves the email claim matched, per the caveat above.
+##### The provider in this repository
 
-None of this is deployment configuration. `deployment.jsonc` is unchanged, `issuer` and `audience` stay valid because the audience belongs to the application rather than the provider, and there is no `pnpm deploy`.
+`packages/email-code-idp` is an OIDC provider that emails a code and nothing else. It replaces the provider, not the architecture: Access still fronts the application, the router still owns the public origin, and the Workshop still trusts the same signed Access JWT carrying the same `email` claim.
 
-Keep a way back in before step 4 removes the old login method. Narrowing an application to a single provider you have not signed in through yet is how people lock themselves out of their own deployment, and the `admins` list cannot help because reaching `/admin` requires getting through Access first. Verify the new provider in one browser while an authenticated session is still open in another, or leave a second login method enabled until the first real sign-in succeeds.
+It is off by default and should stay off wherever the allowlist is available — Cloudflare's own provider needs no Worker, no delivery account, and no key. Turn it on in `deployment.jsonc`:
+
+```jsonc
+"workers": {
+  "emailCodeIdp": { "name": "acme-login", "route": { "customDomain": "login.example.com" } }
+},
+"emailCodeIdp": {
+  "enabled": true,
+  "issuer": null,
+  "brand": "Acme",
+  "clientId": "acme-access",
+  "allowedEmails": ["@example.com"],
+  "mailFrom": "Acme <login@example.com>"
+}
+```
+
+Then:
+
+1. Install the two secrets, which are never config values: `wrangler secret put IDP_CLIENT_SECRET` and `wrangler secret put IDP_MAIL_API_KEY`, both `--name` the Worker above. Delivery goes through [Resend](https://resend.com); Cloudflare Email Routing cannot do this job, because its `send_email` binding only delivers to addresses already verified in the account.
+2. `pnpm check`, then `pnpm deploy`.
+3. Add it under **Zero Trust → Integrations → Identity providers** as [generic OIDC](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/generic-oidc/), with the client id and secret from above, the `email` scope, and the endpoints listed at `https://<its hostname>/.well-known/openid-configuration`.
+4. Send yourself a test code and read the raw message before going further. It should contain no `<a href` and no tracking URL. The Worker enforces this and its tests assert it, so this is a confirmation rather than a discovery — but it is the property the whole change rests on, and it costs a minute.
+5. On the Access application's **Authentication** tab, turn off **Accept all available identity providers** and select only the new one, so nobody is offered the broken option. **Apply instant authentication** then sends users straight there instead of showing the provider chooser.
+6. Sign in as an existing non-admin user and as an admin, and confirm the existing chats and `/admin` are both still there. That is what proves the email claim matched, per the caveat above.
+
+`access.issuer`, `access.audience` and `admins` are all untouched: the audience belongs to the application rather than the provider. The provider's own callback is derived from `access.issuer` rather than configured, since the only address it may return to is that team's OIDC callback.
+
+##### Two things to get right
+
+**This Worker takes a public route and is deliberately not behind Access.** It has to be — it is where Access sends browsers that have not signed in yet, so a provider behind the application it authenticates for could never be reached. It therefore needs a hostname of its own, and the deploy refuses one that shares the router's. It reaches no other Worker and no application data; it keeps no user table; a finished login leaves behind an expired Durable Object. `allowedEmails` is required rather than defaulted for the same reason: a public endpoint that mails a code to any address on request is a mail cannon pointed at strangers and a bill pointed at you. `["*"]` is available for deployments that genuinely want open sign-up, and has to be written out.
+
+**Keep a way back in before step 5 removes the old login method.** Narrowing an application to a single provider you have not signed in through yet is how people lock themselves out of their own deployment, and the `admins` list cannot help because reaching `/admin` requires getting through Access first. Verify the new provider in one browser while an authenticated session is still open in another, or leave a second login method enabled until the first real sign-in succeeds.
+
+[`packages/email-code-idp/README.md`](../packages/email-code-idp/README.md) documents the endpoints, the limits on codes and sends, and why single use is enforced in a Durable Object rather than KV.
 
 ### Storage
 
