@@ -1,4 +1,4 @@
-// One Durable Object per widget: the only place a widget's backend may keep anything.
+// One Durable Object per widget: the only place a widget may keep anything.
 //
 // A widget's backend is code a member wrote, running in an isolate this Worker built for it, so the
 // question is not what it would like to reach but what it is handed. It is handed this: a key-value
@@ -6,24 +6,29 @@
 // Object, whose methods answer for every member; not the R2 bucket, whose keys address every file
 // in the deployment.
 //
-// The stub is passed straight into the isolate's `env`, so these methods are the widget's whole API
-// for persistence. They are therefore written as an API rather than as internals: bounded, and
-// refusing rather than throwing something a widget author cannot read.
+// The same object is reachable two ways, and the boundary is the same one either way. A backend
+// gets the stub straight into its isolate's `env`; a widget with no backend gets the same methods
+// over HTTP under its own `api/store` (see `widget-store-api.ts`), which is what makes persistence
+// something a widget can have without a Worker Loader and without writing any server code at all.
+//
+// So these methods are the widget's whole API for persistence, and they are written as an API
+// rather than as internals: bounded, and refusing rather than throwing something a widget author
+// cannot read.
 
 import { DurableObject } from "cloudflare:workers";
 import { ProjectError } from "./model.js";
 
 /** Longest key a widget may use. Long enough to namespace, short enough to keep listings cheap. */
-const MAX_KEY_LENGTH = 512;
+export const MAX_KEY_LENGTH = 512;
 
 /** Largest single value. Durable Object storage allows more; a widget's scratch space needs less. */
-const MAX_VALUE_BYTES = 128 * 1024;
+export const MAX_VALUE_BYTES = 128 * 1024;
 
 /** How many keys one widget may hold. */
 const MAX_KEYS = 1000;
 
 /** Most keys one `list()` returns. */
-const MAX_LIST = 200;
+export const MAX_LIST = 200;
 
 /** What `list()` gives back. Values come with keys because a widget almost always wants both. */
 export interface WidgetStoreEntry {

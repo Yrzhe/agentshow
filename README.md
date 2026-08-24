@@ -72,7 +72,7 @@ pnpm --dir cloudflare-os install
 pnpm exec wrangler login
 ```
 
-Your account needs [Workers](https://developers.cloudflare.com/workers/), [KV](https://developers.cloudflare.com/kv/), [R2](https://developers.cloudflare.com/r2/), [Browser Rendering](https://developers.cloudflare.com/browser-rendering/), and [Dynamic Worker Loaders](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/). It also needs [Workers AI](https://developers.cloudflare.com/workers-ai/) and [AI Gateway](https://developers.cloudflare.com/ai-gateway/), which the default model catalog runs on; only turning that catalog off makes them dispensable. [Artifacts](https://developers.cloudflare.com/artifacts/) is optional.
+Your account needs [Workers](https://developers.cloudflare.com/workers/), [KV](https://developers.cloudflare.com/kv/), [R2](https://developers.cloudflare.com/r2/), and [Browser Rendering](https://developers.cloudflare.com/browser-rendering/). It also needs [Workers AI](https://developers.cloudflare.com/workers-ai/) and [AI Gateway](https://developers.cloudflare.com/ai-gateway/), which the default model catalog runs on; only turning that catalog off makes them dispensable. [Artifacts](https://developers.cloudflare.com/artifacts/) is optional, and so is [Dynamic Worker Loaders](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) — needed only to let a project's widgets run a backend module of their own, which `project.widgetBackends` turns on.
 
 ### 2. Configure sign-in
 
@@ -109,7 +109,8 @@ Backend error reporting is enabled without a vendor account. Explicit upstream i
 - Open the Error Reporter Worker's [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/) and verify its structured `error_report` query surface.
 - Ask an agent to schedule something a few minutes out, and confirm it runs — that exercises the Scheduler Gatekeeper end to end.
 - From two different Access identities, start a project, invite the other, and share a file into it: each agent should see the shared file and neither should see the other's chats. That exercises the [Project Gatekeeper](docs/collaboration.md) end to end.
-- In that same project, ask one agent to create a widget with an `index.html` and a backend that reads a shared configuration value, then open the link it gives you: the page should run and its `api/` route should answer. The other member's link should work too, and a link to a `private` widget should not. That exercises [widgets](docs/collaboration.md#widgetproject-里的-mini-app), which need [Dynamic Worker Loaders](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) on the account.
+- In that same project, ask one agent to create a widget with an `index.html` that stores something through `api/store` and reads it back, then open the link it gives you: the page should run and remember what it stored across a reload. The other member's link should work too, and a link to a `private` widget should not. That exercises [widgets](docs/collaboration.md#widgetproject-里的-mini-app), which need nothing extra on the account.
+- Only if `project.widgetBackends` is on: ask for a widget with a `backend.js` that reads a shared configuration value, and confirm its `api/` route answers. That exercises the isolate path, which needs [Dynamic Worker Loaders](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) on the account.
 - Review logs for the router, Workshop, Context, Scheduler, Projects, custom Gatekeeper, and Error Reporter Workers.
 
 ## Customization

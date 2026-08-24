@@ -20,10 +20,14 @@ import {
 import {
   LINK_LIFETIME_MS,
   ProjectError,
+  WIDGET_BACKEND_PATH,
+  WIDGET_STORE_PATH,
   widgetContentSecurityPolicy,
   widgetCookieName,
 } from "./model.js";
-import type { ProjectDurableObject } from "./project-store.js";
+import type { ProjectDurableObject, WidgetApiResult } from "./project-store.js";
+import { isWidgetStorePath, serveWidgetStore } from "./widget-store-api.js";
+import type { WidgetStoreDurableObject } from "./widget-store.js";
 import { runWidgetBackend, widgetBackendRequest, widgetIsolateName } from "./widget-runtime.js";
 
 export { ProjectDurableObject } from "./project-store.js";
@@ -124,7 +128,7 @@ export default {
 };
 
 /**
- * Serve a widget: its frontend, or its backend under `api/`.
+ * Serve a widget: its frontend, or whatever answers under `api/`.
  *
  * The capability comes from the query string on the first request and from a path-scoped cookie
  * afterwards, so the SPA's own fetches do not have to carry a token in every URL. Both are offered
@@ -150,36 +154,13 @@ async function serveWidget(
     if (!BACKEND_METHODS.has(request.method)) {
       return refusal(405, "That method is not supported here.");
     }
-    const opened = await store.openWidgetBackend(widget.widgetId, offered);
+    const opened = await store.openWidgetApi(widget.widgetId, offered);
     if (!opened.ok) return refusal(opened.status, opened.message);
-    // Declared in this package's own wrangler.jsonc, so the generated types say it is always there.
-    // Checked anyway, because a deployment that strips the binding should get an answer that names
-    // the reason rather than a TypeError out of the middle of a widget's request.
-    const loader = env.WIDGET_LOADER as WorkerLoader | undefined;
-    if (!loader) {
-      return refusal(
-        501,
-        "This deployment cannot run widget backends: it has no Worker Loader binding.");
-    }
     try {
-      const answer = await runWidgetBackend(
-        loader,
-        {
-          isolateName: widgetIsolateName(
-            configuredDomain(env), opened.projectId, opened.widgetId, opened.revision,
-            opened.principal),
-          source: opened.source,
-          identity: {
-            projectId: opened.projectId,
-            widgetId: opened.widgetId,
-            principal: opened.principal,
-          },
-          envVars: opened.envVars,
-          store: widgetStore(env, ctx, opened.projectId, opened.widgetId),
-        },
-        await widgetBackendRequest(request, widget.assetPath));
-      // A backend's answer is data for the widget's own script, so it is never a document the
-      // browser should render on this origin, whatever content type the widget chose.
+      const answer = await widgetApiAnswer(request, env, ctx, widget.assetPath, opened);
+      // Whatever answered, it is data for the widget's own script rather than a document the
+      // browser should render on this origin -- so the same three headers either way, and a
+      // widget's backend does not get to choose them for itself.
       answer.headers.set("x-content-type-options", "nosniff");
       answer.headers.set("cache-control", "private, no-store");
       answer.headers.set("content-security-policy", "default-src 'none'; sandbox");
@@ -212,6 +193,53 @@ async function serveWidget(
     },
   });
   return withWidgetCookie(response, env, widget, found.renewedToken);
+}
+
+/**
+ * What answers one request under a widget's `api/`.
+ *
+ * Two possible backends, and which one applies is the widget's own business rather than this
+ * handler's: a widget that has written a `backend.js` owns the whole of its `api/`, and a widget
+ * that has not gets the built-in store on the one route that serves it. They never overlap, so no
+ * widget's routes depend on a file its callers cannot see.
+ *
+ * Both are handed the same store. That is what makes adding or removing a `backend.js` a change to
+ * what answers rather than a change to what is stored: the module reaches through `env.STORE`
+ * exactly the object `api/store` was serving the day before.
+ */
+async function widgetApiAnswer(
+  request: Request,
+  env: Cloudflare.Env,
+  ctx: ExecutionContext,
+  assetPath: string,
+  opened: Extract<WidgetApiResult, { ok: true }>,
+): Promise<Response> {
+  const store = widgetStore(env, ctx, opened.projectId, opened.widgetId);
+  if (opened.backend) {
+    return runWidgetBackend(
+      requireLoader(env),
+      {
+        isolateName: widgetIsolateName(
+          configuredDomain(env), opened.projectId, opened.widgetId, opened.backend.revision,
+          opened.principal),
+        source: opened.backend.source,
+        identity: {
+          projectId: opened.projectId,
+          widgetId: opened.widgetId,
+          principal: opened.principal,
+        },
+        envVars: opened.backend.envVars,
+        store,
+      },
+      await widgetBackendRequest(request, assetPath));
+  }
+  if (isWidgetStorePath(assetPath)) return serveWidgetStore(store, request, assetPath);
+  // Named rather than left blank: a widget calling a route nobody answers should be told what this
+  // one does answer, instead of being handed the store's own listing by accident.
+  return refusal(
+    404,
+    `The widget ${opened.name} has no ${WIDGET_BACKEND_PATH}, so the only thing it answers under ` +
+    `api/ is its own store at api/${WIDGET_STORE_PATH}.`);
 }
 
 /**
@@ -270,16 +298,39 @@ function projectStore(
  *
  * Named by project and widget together, so the store a backend is handed is the store of the widget
  * that is running and there is no name it could ask for instead -- it never sees the namespace.
+ * The built-in `api/store` route is named the same way, from the ids the Durable Object just
+ * confirmed rather than from the ones in the address, so both paths reach exactly one object.
  */
 function widgetStore(
   env: Cloudflare.Env,
   ctx: ExecutionContext,
   projectId: string,
   widgetId: string,
-) {
+): DurableObjectStub<WidgetStoreDurableObject> {
   const namespace = ctx.exports.WidgetStoreDurableObject;
   return namespace.get(
     namespace.idFromName(domainName(configuredDomain(env), `${projectId}/${widgetId}`)));
+}
+
+/**
+ * The Worker Loader, for a widget that has a backend module of its own.
+ *
+ * Optional on this Worker: a deployment on an account without Dynamic Worker Loaders binds no
+ * loader, serves widget frontends and the built-in store exactly as before, and only a widget that
+ * has written a `backend.js` finds anything missing. So the refusal has to name what is missing and
+ * what still works, rather than being the TypeError that reaching into an absent binding would
+ * otherwise produce halfway through somebody's request.
+ */
+function requireLoader(env: Cloudflare.Env): WorkerLoader {
+  const loader = env.WIDGET_LOADER;
+  if (!loader) {
+    throw new ProjectError(
+      `This deployment has no Worker Loader binding, so it cannot run a widget's own ` +
+      `${WIDGET_BACKEND_PATH}. Its widgets still serve their files and their built-in store at ` +
+      `api/${WIDGET_STORE_PATH}; running custom backend code needs Dynamic Worker Loaders on the ` +
+      `account and the WIDGET_LOADER binding enabled for this Worker.`, 501);
+  }
+  return loader;
 }
 
 function refusal(status: number, message: string): Response {

@@ -36,6 +36,20 @@ export const WIDGET_INDEX_PATH = "index.html";
 /** Path segment under a widget reserved for its backend, so no asset may claim it. */
 export const WIDGET_API_PREFIX = "api";
 
+/**
+ * The one route under `api/` this Worker answers itself, for a widget with no backend module.
+ *
+ * A widget that only wants to remember something should not need a backend, and a deployment
+ * without Worker Loaders should not be a deployment where widgets cannot remember anything. So the
+ * widget's own store -- the same Durable Object a backend would have been handed -- is served here
+ * directly, as an HTTP API under this one prefix.
+ *
+ * Only for a widget with no `backend.js`. A widget that has one owns the whole of its `api/`,
+ * `api/store` included: two things answering the same address would be a route whose behaviour
+ * depends on a file the caller cannot see.
+ */
+export const WIDGET_STORE_PATH = "store";
+
 /** Largest backend module we will hand to an isolate. A widget's backend is glue, not a bundle. */
 export const MAX_WIDGET_BACKEND_BYTES = 128 * 1024;
 

@@ -104,6 +104,15 @@
     // remembers an R2 bucket on first deploy. string: bind an existing bucket by name.
     "filesBucket": null,
 
+    // Whether a widget may run a backend.js of its own, in an isolate loaded by a Worker Loader.
+    //
+    // false is a complete deployment, not a reduced one: every widget serves its files and
+    // persists data through its own api/store either way. Turning this on adds the WIDGET_LOADER
+    // binding, which requires Dynamic Worker Loaders on the account -- so a deployment that turns
+    // it on without that access gets a deploy that fails rather than a widget that misbehaves.
+    // Reference: docs/collaboration.md
+    "widgetBackends": false,
+
     // What one project may hold, counting its files and its widgets' files together: one allowance,
     // not one each. Omit a field, or set it to null, to keep the Worker's default.
     // These are the paid dimension: the bytes are billed to the bucket above.

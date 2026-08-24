@@ -369,6 +369,36 @@ test("deploys the Project Gatekeeper with its own origin, domain, bucket and quo
     "the projects Worker is never built");
 });
 
+/**
+ * Widget backends are the one part of the Project Gatekeeper that needs an account feature.
+ *
+ * A Worker Loader binding wrangler cannot create is a deploy that fails outright, so it is opt-in:
+ * without it every widget still serves its files and persists data through its built-in api/store,
+ * and only a widget carrying its own backend.js finds anything missing.
+ */
+test("leaves out the widget Worker Loader unless the deployment asked for it", async () => {
+  const bases = await baseConfigs();
+  assert.equal(bases.project.worker_loaders, undefined,
+    "the base config declares a binding that needs Dynamic Worker Loaders on the account");
+
+  const off = generateConfigs(validConfig, bases);
+  assert.equal(off.project.worker_loaders, undefined);
+  const explicit = generateConfigs(
+    variant((c) => { c.project.widgetBackends = false; }), bases);
+  assert.equal(explicit.project.worker_loaders, undefined);
+
+  const on = generateConfigs(variant((c) => { c.project.widgetBackends = true; }), bases);
+  assert.deepEqual(on.project.worker_loaders, [{ binding: "WIDGET_LOADER" }]);
+  // The rest of the Worker is the same either way: the binding is what changes, not the storage a
+  // widget's data lands in.
+  assert.deepEqual(on.project.r2_buckets, off.project.r2_buckets);
+  assert.deepEqual(on.project.migrations, off.project.migrations);
+
+  assert.throws(
+    () => validateConfig(variant((c) => { c.project.widgetBackends = "yes"; })),
+    /project\.widgetBackends/);
+});
+
 test("falls back to the documented default for a quota that is not configured", async () => {
   const bases = await baseConfigs();
   // The base config's own vars are the documented defaults, so an unconfigured quota inherits one

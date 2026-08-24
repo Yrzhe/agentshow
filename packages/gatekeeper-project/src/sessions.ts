@@ -712,8 +712,9 @@ export class ProjectWorkspaceSession extends RpcTarget implements ProjectWorkspa
         description:
           `Create a widget named ${name} at ${path} in the project ${await this.#name()}, visible ` +
           `to ${describeVisibility(plan.visibility)}. A widget is a small app: it will serve the ` +
-          `files written into it at its own address, and run a backend module there if one is ` +
-          `added. It has no files yet, so it does nothing until ${WIDGET_INDEX_PATH} is written.` +
+          `files written into it at its own address, with a key-value store of its own that ` +
+          `everyone who can open it shares, and will run a backend module there if one is added. ` +
+          `It has no files yet, so it does nothing until ${WIDGET_INDEX_PATH} is written.` +
           (description ? `\n\nDescription: ${description}` : ""),
         implementsRevert: true,
         awaitDecision: true,
@@ -850,11 +851,12 @@ export class ProjectWorkspaceSession extends RpcTarget implements ProjectWorkspa
           `Change who can open the widget ${widget.name} in the project ${await this.#name()}, ` +
           `from ${describeVisibility(widget.visibility)} to ${describeVisibility(wanted)}.` +
           (wanted === "public"
-            ? ` Anyone who can reach this deployment will be able to open it and call its ` +
-              `backend once they hold its link, whether or not they are a member of this project. ` +
-              `Their requests reach the backend as an anonymous caller.` +
+            ? ` Anyone who can reach this deployment will be able to open it once they hold its ` +
+              `link, whether or not they are a member of this project, and their requests arrive ` +
+              `as an anonymous caller. That includes reading and writing everything the widget ` +
+              `has stored, which is shared by everyone who can open it.` +
               (widget.hasBackend
-                ? ` This widget has a backend, and a backend can read the project's shared ` +
+                ? ` This widget also has a backend, and a backend can read the project's shared ` +
                   `configuration, so whatever it chooses to answer with is published too.`
                 : "")
             : ` Links already open in a browser stop working.`),
@@ -887,8 +889,8 @@ export class ProjectWorkspaceSession extends RpcTarget implements ProjectWorkspa
         title: `Delete the widget ${widget.name} from ${await this.#name()}`,
         description:
           `Permanently delete the widget ${widget.name} at ${widget.path}, its ` +
-          `${widget.fileCount} files (${widget.size} bytes) and everything its backend has ` +
-          `stored, from the project ${await this.#name()}. This cannot be undone.`,
+          `${widget.fileCount} files (${widget.size} bytes) and everything it has stored, from ` +
+          `the project ${await this.#name()}. This cannot be undone.`,
         implementsRevert: false,
         awaitDecision: true,
         actionKind: ACTION_KINDS.destructive,
@@ -935,9 +937,10 @@ export class ProjectWorkspaceSession extends RpcTarget implements ProjectWorkspa
         description: code
           ? `${created ? "Add" : "Replace"} the backend module of the widget ${widget.name} in ` +
             `the project ${await this.#name()} (${write.size} bytes). This is code, and it will ` +
-            `run whenever anyone who can open this widget calls its api/ routes. It runs with no ` +
-            `access to the internet, and with the project's shared configuration values in its ` +
-            `environment together with a store of its own. The widget is openable by ` +
+            `run whenever anyone who can open this widget calls its api/ routes -- taking over ` +
+            `the built-in store route the widget answers there today. It runs with no access to ` +
+            `the internet, and with the project's shared configuration values in its environment ` +
+            `together with the widget's own store. The widget is openable by ` +
             `${describeVisibility(widget.visibility)}.`
           : `${created ? "Create" : "Replace the contents of"} ${path} (${type}, ${write.size} ` +
             `bytes) in the widget ${widget.name} in the project ${await this.#name()}. The widget ` +
