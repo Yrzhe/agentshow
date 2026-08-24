@@ -292,8 +292,8 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
     let sql = "SELECT * FROM files WHERE 1 = 1";
     const bindings: (string | number)[] = [];
     if (opts.pathPrefix) {
-      sql += " AND path LIKE ?";
-      bindings.push(`${opts.pathPrefix.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
+      sql += " AND path LIKE ? ESCAPE '\\'";
+      bindings.push(`${likeLiteral(opts.pathPrefix)}%`);
     }
     if (opts.ownerId) {
       sql += " AND owner_id = ?";
@@ -881,6 +881,17 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
     return [...new Uint8Array(signature)]
       .map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
+}
+
+/**
+ * A path, as the literal part of a LIKE pattern.
+ *
+ * SQLite has no escape character unless the query names one, so the pattern this feeds is matched
+ * with `ESCAPE '\'`; without that clause these backslashes would themselves be literal, and a folder
+ * called `my_dir` would match nothing.
+ */
+function likeLiteral(path: string): string {
+  return path.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
 /**

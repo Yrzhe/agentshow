@@ -203,6 +203,21 @@ describe("file visibility", () => {
       .toEqual(["alice/draft.md", "shared/plan.md"]);
   });
 
+  it("filters by a path prefix literally, folders named with SQL wildcards included", async () => {
+    const { store } = await newProject();
+    await write(store, alice.memberId, "my_dir/plan.md", "plan");
+    await write(store, alice.memberId, "my_dir/notes.md", "notes");
+    // Decoys: one that a wildcard `_` would sweep up, one that a wildcard `%` would.
+    await write(store, alice.memberId, "myXdir/other.md", "other");
+    await write(store, alice.memberId, "100%/report.md", "report");
+
+    const dir = await store.listFiles(alice.memberId, { pathPrefix: "my_dir/", limit: 10 });
+    expect(dir.map((file) => file.path).toSorted())
+      .toEqual(["my_dir/notes.md", "my_dir/plan.md"]);
+    const percent = await store.listFiles(alice.memberId, { pathPrefix: "100%/", limit: 10 });
+    expect(percent.map((file) => file.path)).toEqual(["100%/report.md"]);
+  });
+
   it("takes a shared/ path as the intent to share, with no flag passed", async () => {
     const { store } = await projectWithBob();
     const shared = await write(store, alice.memberId, "shared/plan.md", "plan");
