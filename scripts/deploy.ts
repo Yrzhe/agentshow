@@ -27,6 +27,7 @@ const packageDirs = {
   project: "packages/gatekeeper-project",
   customGatekeeper: "packages/custom-gatekeeper",
   errorReporter: "packages/error-reporter",
+  emailCodeIdp: "packages/email-code-idp",
 } as const;
 const generatedPaths = Object.fromEntries(
   Object.entries(packageDirs).map(([name, dir]) => [name, join(root, dir, generatedName)]),
@@ -67,6 +68,40 @@ const errorReportingPaths = [
   "workers.errorReporter.name",
   "errorReporting.environment",
 ];
+
+const emailCodeIdpPaths = [
+  "workers.emailCodeIdp.name",
+  "emailCodeIdp.brand",
+  "emailCodeIdp.clientId",
+  "emailCodeIdp.allowedEmails",
+  "emailCodeIdp.mailFrom",
+];
+
+/**
+ * The email-code provider's limits, and the smallest value each may take.
+ *
+ * The floors are not arbitrary. A code that lives less than a minute expires while its mail is
+ * still in transit; a single attempt turns one mistyped digit into a restart; and a send window
+ * under a minute is not a rate limit.
+ */
+const emailCodeIdpLimits = [
+  { key: "codeTtlSeconds", var: "IDP_CODE_TTL_SECONDS", minimum: 60 },
+  { key: "maxAttempts", var: "IDP_MAX_ATTEMPTS", minimum: 3 },
+  { key: "maxSendsPerSession", var: "IDP_MAX_SENDS_PER_SESSION", minimum: 1 },
+  { key: "maxSendsPerEmail", var: "IDP_MAX_SENDS_PER_EMAIL", minimum: 1 },
+  { key: "sendWindowSeconds", var: "IDP_SEND_WINDOW_SECONDS", minimum: 60 },
+] as const;
+
+/**
+ * The one address the email-code provider may hand an authorization code to.
+ *
+ * Derived rather than configured: it is the Access team's own OIDC callback, so `access.issuer`
+ * already contains it. A separately entered value could disagree with the Access application the
+ * deployment is actually protected by, and the failure mode of that is codes delivered elsewhere.
+ */
+export function accessOidcCallback(config: DeploymentConfig): string {
+  return `${config.access.issuer.replace(/\/$/, "")}/cdn-cgi/access/callback`;
+}
 
 const resourcePaths = [
   "context.kvNamespaceId",
@@ -174,6 +209,7 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
     ...requiredPaths,
     ...(config.aiGateway?.enabled ? aiGatewayPaths : []),
     ...(config.errorReporting?.enabled ? errorReportingPaths : []),
+    ...(config.emailCodeIdp?.enabled ? emailCodeIdpPaths : []),
   ];
   for (const path of activePaths) {
     const value = valueAt(config, path);
@@ -199,13 +235,25 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
       errorReporting: { enabled: false },
     };
   }
-  const placeholder = JSON.stringify(activeConfig).match(/<[^>]+>/)?.[0];
+  if (!config.emailCodeIdp?.enabled) {
+    activeConfig = {
+      ...activeConfig,
+      workers: { ...activeConfig.workers, emailCodeIdp: undefined },
+      emailCodeIdp: undefined,
+    };
+  }
+  // Every placeholder in deployment.jsonc is <UPPER_SNAKE_CASE>, and the pattern is anchored to
+  // that rather than to "anything in angle brackets". The looser form also matches the display-name
+  // mail format, RFC 5322's `Acme <login@example.com>`, which emailCodeIdp.mailFrom is written in --
+  // so a correctly configured sender would be reported as a placeholder nobody had left behind.
+  const placeholder = JSON.stringify(activeConfig).match(/<[A-Z][A-Z\d_]*>/)?.[0];
   if (placeholder) throw new Error(`Replace deployment placeholder ${placeholder}.`);
 
   const stringPaths = activePaths.filter((path) => ![
     "access.admins",
     "aiGateway.enabled",
     "aiGateway.providers",
+    "emailCodeIdp.allowedEmails",
     "errorReporting.enabled",
     "observability.enabled",
     "observability.headSamplingRate",
@@ -223,11 +271,14 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
     throw new Error("Cloudflare account IDs must be 32 hexadecimal characters.");
   }
   const workerNames = Object.entries(config.workers)
-    .filter(([key]) => key !== "errorReporter" || config.errorReporting.enabled)
+    .filter(([key]) => {
+      if (key === "errorReporter") return config.errorReporting.enabled;
+      if (key === "emailCodeIdp") return config.emailCodeIdp?.enabled ?? false;
+      return true;
+    })
     .map(([, worker]) => worker.name);
   if (new Set(workerNames).size !== workerNames.length) {
-    throw new Error(
-      "Router, Workshop, Context, Scheduler, Projects, and custom Gatekeeper names must be unique.");
+    throw new Error("Every Worker name in this deployment must be unique within the account.");
   }
   if (!workerNames.every((name) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name))) {
     throw new Error("Worker names must use lowercase letters, numbers, and hyphens.");
@@ -275,6 +326,7 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
   }
 
   validateAiGateway(config);
+  validateEmailCodeIdp(config);
 
   if (typeof config.errorReporting.enabled !== "boolean") {
     throw new Error("Error reporting enabled must be a boolean.");
@@ -459,6 +511,143 @@ function validateProject(config: DeploymentConfig): void {
     throw new Error(
       `project.limits.maxFileBytes (${maxFileBytes}) exceeds maxTotalBytes (${maxTotalBytes}), so ` +
       "no file of the permitted size would ever fit in a project.");
+  }
+}
+
+/**
+ * The email-code provider's own public origin.
+ *
+ * Its own, not the deployment's: Access has to be able to send an unauthenticated browser here, so
+ * it answers on a hostname of its own rather than behind the router.
+ */
+export function emailCodeIdpOrigin(config: DeploymentConfig): string {
+  const explicit = config.emailCodeIdp?.issuer;
+  if (explicit) return explicit.replace(/\/$/, "");
+  return `https://${config.workers.emailCodeIdp!.route.customDomain!}`;
+}
+
+/**
+ * The email-code sign-in provider's own block.
+ *
+ * Everything here is optional until `enabled` is true, at which point it all has to be present and
+ * well formed -- this Worker is a public endpoint that sends mail, so a half-configured one is
+ * worse than an absent one.
+ */
+function validateEmailCodeIdp(config: DeploymentConfig): void {
+  const idp = config.emailCodeIdp;
+  if (idp === undefined) return;
+  if (idp === null || typeof idp !== "object" || Array.isArray(idp)) {
+    throw new Error("emailCodeIdp must be an object when present.");
+  }
+  if (typeof idp.enabled !== "boolean") {
+    throw new Error("emailCodeIdp.enabled must be a boolean.");
+  }
+  if (!idp.enabled) return;
+
+  const worker = config.workers.emailCodeIdp;
+  if (!worker || typeof worker !== "object") {
+    throw new Error(
+      "workers.emailCodeIdp must name the Worker when emailCodeIdp.enabled is true.");
+  }
+  const route = worker.route;
+  if (!route || Boolean(route.workersDev) === Boolean(route.customDomain)) {
+    throw new Error(
+      "Set exactly one workers.emailCodeIdp.route: workersDev or customDomain. This Worker takes a " +
+      "public route of its own because Access sends unauthenticated browsers to it, so it cannot " +
+      "sit behind the Access application it feeds.");
+  }
+  if (route.customDomain !== undefined && typeof route.customDomain !== "string") {
+    throw new Error("workers.emailCodeIdp.route.customDomain must be a string.");
+  }
+
+  const issuer = idp.issuer;
+  if (issuer === undefined) {
+    throw new Error(
+      "emailCodeIdp.issuer must be present. Use null to derive it from " +
+      "workers.emailCodeIdp.route.customDomain.");
+  }
+  if (issuer === null) {
+    if (!route.customDomain) {
+      throw new Error(
+        "emailCodeIdp.issuer is required on a workersDev route, for the same reason publicBaseUrl " +
+        "is: the account's workers.dev subdomain is not in this file. It becomes the provider's " +
+        "iss claim and the base of every endpoint Access is pointed at, so a wrong value is a " +
+        "sign-in that cannot complete.");
+    }
+  } else {
+    if (typeof issuer !== "string") throw new Error("emailCodeIdp.issuer must be null or a string.");
+    let origin: string;
+    try {
+      origin = new URL(issuer).origin;
+    } catch {
+      throw new Error("emailCodeIdp.issuer must be an HTTPS origin such as https://login.example.com.");
+    }
+    if (!issuer.startsWith("https://") || origin !== issuer) {
+      throw new Error(
+        "emailCodeIdp.issuer must be an HTTPS origin only, with no path and no trailing slash.");
+    }
+    if (route.customDomain && issuer !== `https://${route.customDomain}`) {
+      throw new Error(
+        `emailCodeIdp.issuer (${issuer}) does not match workers.emailCodeIdp.route.customDomain ` +
+        `(${route.customDomain}). Leave it null to derive it from the custom domain.`);
+    }
+  }
+
+  // The provider answers on a hostname of its own, and the deployment's public origin is protected
+  // by the Access application it feeds. Pointing both at one hostname would put the login pages
+  // behind the very gate they exist to open.
+  if (emailCodeIdpOrigin(config) === publicOrigin(config)) {
+    throw new Error(
+      "emailCodeIdp must answer on a different hostname from the router. Access sends " +
+      "unauthenticated browsers to this provider, so a provider sharing the deployment's " +
+      "Access-protected origin could never be reached to sign anybody in.");
+  }
+
+  if (/https?:\/\/|\bwww\./i.test(idp.brand ?? "")) {
+    throw new Error(
+      "emailCodeIdp.brand must not contain a URL: it is rendered into the sign-in email, which " +
+      "carries no links by design. That is the entire property this provider exists to hold.");
+  }
+
+  const allowed = idp.allowedEmails;
+  if (!Array.isArray(allowed) || !allowed.length ||
+      !allowed.every((entry) => typeof entry === "string" && entry.trim())) {
+    throw new Error(
+      "emailCodeIdp.allowedEmails must be a non-empty list of addresses, @domain entries, or the " +
+      "single entry \"*\".");
+  }
+  if (allowed.includes("*") && allowed.length > 1) {
+    throw new Error("emailCodeIdp.allowedEmails is either [\"*\"] or a list, not both.");
+  }
+  for (const entry of allowed) {
+    if (entry === "*") continue;
+    if (entry.startsWith("@")) {
+      if (!entry.slice(1).includes(".")) {
+        throw new Error(`emailCodeIdp.allowedEmails entry ${JSON.stringify(entry)} is not a domain.`);
+      }
+      continue;
+    }
+    if (!/^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$/.test(entry)) {
+      throw new Error(
+        `emailCodeIdp.allowedEmails entry ${JSON.stringify(entry)} is neither an address nor an ` +
+        "@domain. A bare domain would silently match nothing, leaving nobody able to sign in.");
+    }
+  }
+
+  const limits = idp.limits;
+  if (limits !== undefined && (limits === null || typeof limits !== "object" ||
+      Array.isArray(limits))) {
+    throw new Error("emailCodeIdp.limits must be an object when present.");
+  }
+  for (const limit of emailCodeIdpLimits) {
+    const value = limits?.[limit.key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < limit.minimum) {
+      throw new Error(
+        `emailCodeIdp.limits.${limit.key} must be null or a whole number of at least ` +
+        `${limit.minimum}. It reaches the Worker as the string ${limit.var}, so a value that is ` +
+        "not a number becomes a limit that never trips.");
+    }
   }
 }
 
@@ -671,9 +860,47 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
     setCommon(errorReporter, config, config.workers.errorReporter!.name);
   }
 
+  const emailCodeIdp = config.emailCodeIdp?.enabled
+    ? structuredClone(bases.emailCodeIdp)
+    : undefined;
+  if (emailCodeIdp) {
+    const idp = config.emailCodeIdp!;
+    const worker = config.workers.emailCodeIdp!;
+    // The only Worker other than the router given a route, and the only one that must not be behind
+    // Access: it is where Access sends browsers that have not signed in yet.
+    setCommon(emailCodeIdp, config, worker.name, worker.route);
+    emailCodeIdp.vars = {
+      ...emailCodeIdp.vars,
+      IDP_ISSUER: emailCodeIdpOrigin(config),
+      IDP_BRAND: idp.brand!,
+      IDP_CLIENT_ID: idp.clientId!,
+      // Derived from access.issuer rather than configured: see accessOidcCallback.
+      IDP_REDIRECT_URI: accessOidcCallback(config),
+      IDP_ALLOWED_EMAILS: idp.allowedEmails!.join(","),
+      IDP_MAIL_FROM: idp.mailFrom!,
+      // A limit that was not configured keeps whatever the base config carries, which is the
+      // documented default. Written as strings because that is what the Worker parses them as.
+      ...Object.fromEntries(emailCodeIdpLimits.flatMap((limit) => {
+        const value = idp.limits?.[limit.key];
+        return typeof value === "number" ? [[limit.var, String(value)]] : [];
+      })),
+    };
+    // Both are credentials, so neither is ever written to a generated file. Wrangler refusing to
+    // deploy without them is a better check than anything this script could do, and it fails
+    // before the Worker is live rather than at the first sign-in attempt.
+    emailCodeIdp.secrets = {
+      required: [...new Set([
+        ...(emailCodeIdp.secrets?.required ?? []),
+        "IDP_CLIENT_SECRET",
+        "IDP_MAIL_API_KEY",
+      ])],
+    };
+  }
+
   return {
     router, workshop, context, scheduler, project, customGatekeeper,
     ...(errorReporter && { errorReporter }),
+    ...(emailCodeIdp && { emailCodeIdp }),
   };
 }
 
@@ -722,6 +949,7 @@ export function buildCommands(config: DeploymentConfig): BuildCommand[] {
     { args: ownBuild("gatekeeper-project") },
     { args: ownBuild("custom-gatekeeper") },
     ...(config.errorReporting.enabled ? [{ args: ownBuild("error-reporter") }] : []),
+    ...(config.emailCodeIdp?.enabled ? [{ args: ownBuild("email-code-idp") }] : []),
     // Access mode is a build-time constant in the frontend bundle (`src/useAuth.ts`), so it is set
     // here rather than inherited: a bundle built under a different value is wrong, not just stale.
     { args: submoduleBuild("@gadgets/workshop-frontend"), env: { VITE_CF_ACCESS_MODE: "true" } },
@@ -827,6 +1055,27 @@ function reportAiGateway(config: DeploymentConfig): void {
     `--name ${config.workers.workshop.name}\n`);
 }
 
+/**
+ * The email-code provider's two secrets, and the one thing about it that cannot be checked here.
+ *
+ * Said before the deploy rather than discovered when the first person cannot sign in. Wrangler
+ * refuses to deploy the Worker without the secrets, so this is a signpost rather than the check.
+ */
+function reportEmailCodeIdp(config: DeploymentConfig): void {
+  if (!config.emailCodeIdp?.enabled) return;
+  const name = config.workers.emailCodeIdp!.name;
+  console.warn(
+    `\nThe email-code sign-in provider needs two secrets on ${name}:\n` +
+    `  CLOUDFLARE_ACCOUNT_ID=${config.accountId} pnpm exec wrangler secret put ` +
+    `IDP_CLIENT_SECRET --name ${name}\n` +
+    `  CLOUDFLARE_ACCOUNT_ID=${config.accountId} pnpm exec wrangler secret put ` +
+    `IDP_MAIL_API_KEY --name ${name}\n` +
+    `It will answer on ${emailCodeIdpOrigin(config)}, which is deliberately NOT behind Access: ` +
+    "it is where Access sends browsers that have not signed in yet. Add it to Cloudflare Access " +
+    "as a generic OIDC login method, and confirm a test code arrives with no link in it before " +
+    "narrowing the Access application to it. See docs/customization.md.\n");
+}
+
 async function main(): Promise<void> {
   requireSubmodule();
   const config = await readDeployment(join(root, "deployment.jsonc"));
@@ -838,8 +1087,10 @@ async function main(): Promise<void> {
     project: await readJsonc(join(root, packageDirs.project, "wrangler.jsonc")),
     customGatekeeper: await readJsonc(join(root, packageDirs.customGatekeeper, "wrangler.jsonc")),
     errorReporter: await readJsonc(join(root, packageDirs.errorReporter, "wrangler.jsonc")),
+    emailCodeIdp: await readJsonc(join(root, packageDirs.emailCodeIdp, "wrangler.jsonc")),
   });
   reportAiGateway(config);
+  reportEmailCodeIdp(config);
 
   try {
     for (const [name, generatedConfig] of Object.entries(generated)) {
@@ -853,6 +1104,11 @@ async function main(): Promise<void> {
     const deployArgs = check ? ["--dry-run"] : [];
     if (config.errorReporting.enabled) {
       deployWorker(packageDirs.errorReporter, deployArgs);
+    }
+    // Independent of every other Worker: nothing binds it and it binds nothing. It is deployed
+    // with the leaves rather than last because the router does not depend on it either.
+    if (config.emailCodeIdp?.enabled) {
+      deployWorker(packageDirs.emailCodeIdp, deployArgs);
     }
     deployWorker(packageDirs.context, deployArgs);
     deployWorker(packageDirs.scheduler, deployArgs);

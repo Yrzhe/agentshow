@@ -122,6 +122,58 @@ export interface ProjectConfig {
   limits?: ProjectLimitsConfig;
 }
 
+/**
+ * Limits on the email-code identity provider. Omit a field, or set it to `null`, to keep the
+ * Worker's own default.
+ *
+ * Checked here rather than in the Worker for the same reason the project quotas are: they reach it
+ * as `vars`, which are strings, so a typo becomes `NaN` and then a limit that never trips.
+ */
+export interface EmailCodeIdpLimits {
+  /** How long an emailed code stays valid. */
+  codeTtlSeconds?: number | null;
+  /** Wrong entries before a code is cancelled. */
+  maxAttempts?: number | null;
+  /** Codes one login attempt may ask for. */
+  maxSendsPerSession?: number | null;
+  /** Codes one address may be sent per window. */
+  maxSendsPerEmail?: number | null;
+  /** The window the per-address limit counts over. */
+  sendWindowSeconds?: number | null;
+}
+
+/**
+ * An OIDC provider, owned by this deployment, that signs people in with an emailed code and puts
+ * no link in that email.
+ *
+ * Off by default. A deployment that can allowlist `noreply@notify.cloudflare.com` in its mail
+ * security product should do that and keep Cloudflare's own one-time PIN; this exists for the
+ * deployments where that allowlist belongs to somebody else.
+ *
+ * There is no `redirectUri` here. It is derived from `access.issuer`, because the only address this
+ * provider may return to is the Access team's own OIDC callback -- and a hand-entered value that
+ * disagreed with the Access application would send authorization codes somewhere else.
+ */
+export interface EmailCodeIdpConfig {
+  /** Whether the provider is deployed at all. */
+  enabled: boolean;
+  /**
+   * The provider's own public origin, which becomes its `iss`. `null` derives it from
+   * `workers.emailCodeIdp.route.customDomain`, and is invalid on a workers.dev route for the same
+   * reason `publicBaseUrl` is.
+   */
+  issuer?: string | null;
+  /** What the sign-in page and the emailed code call this deployment. */
+  brand?: string;
+  /** The client Access authenticates as. Its secret is a Worker secret, never a config value. */
+  clientId?: string;
+  /** Who may be sent a code: addresses, `@domain` entries, or the single entry `*`. */
+  allowedEmails?: string[];
+  /** Envelope sender for the code email, as the delivery provider expects it. */
+  mailFrom?: string;
+  limits?: EmailCodeIdpLimits;
+}
+
 /** Worker telemetry. Maps onto wrangler's `observability` block. */
 export interface DeploymentObservabilityConfig {
   enabled: boolean;
@@ -157,6 +209,13 @@ export interface DeploymentConfig {
     customGatekeeper: { name: string };
     /** Only required when `errorReporting.enabled`. */
     errorReporter?: { name: string };
+    /**
+     * Only required when `emailCodeIdp.enabled`.
+     *
+     * The one Worker besides the router that takes a public route, and it has to: Access sends
+     * unauthenticated browsers to it, so it cannot sit behind the Access application it feeds.
+     */
+    emailCodeIdp?: { name: string; route: RouterRoute };
   };
   access: AccessConfig;
   aiGateway: AiGatewayConfigInput;
@@ -166,6 +225,8 @@ export interface DeploymentConfig {
   customGatekeeper: { name: string; message: string };
   /** Private explicit-issue destination. */
   errorReporting: { enabled: boolean; environment?: string; release?: string | null };
+  /** Optional sign-in provider that emails codes and no links. Absent means disabled. */
+  emailCodeIdp?: EmailCodeIdpConfig;
   /** Workshop KV/R2. `null` requests Wrangler automatic provisioning. */
   resources: {
     blueprintsKvNamespaceId: string | null;
@@ -234,6 +295,8 @@ export interface GeneratedConfigs {
   customGatekeeper: ProdWranglerConfig;
   /** Absent when `errorReporting.enabled` is false. */
   errorReporter?: ProdWranglerConfig;
+  /** Absent when `emailCodeIdp.enabled` is false. */
+  emailCodeIdp?: ProdWranglerConfig;
 }
 
 /** The upstream base configs the generated ones are derived from. */
@@ -245,6 +308,7 @@ export interface BaseConfigs {
   project: ProdWranglerConfig;
   customGatekeeper: ProdWranglerConfig;
   errorReporter: ProdWranglerConfig;
+  emailCodeIdp: ProdWranglerConfig;
 }
 
 /** One build step `deploy.ts` runs before deploying. See `buildCommands`. */

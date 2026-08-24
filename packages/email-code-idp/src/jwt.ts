@@ -22,14 +22,14 @@ export async function generateKeyPair(): Promise<StoredKeyPair> {
     true,
     ["sign", "verify"],
   ) as CryptoKeyPair;
-  const [privateJwk, publicJwk] = await Promise.all([
+  const [exportedPrivate, exportedPublic] = await Promise.all([
     crypto.subtle.exportKey("jwk", pair.privateKey),
     crypto.subtle.exportKey("jwk", pair.publicKey),
   ]) as [JsonWebKey, JsonWebKey];
   return {
     kid: crypto.getRandomValues(new Uint8Array(8)).toHex(),
-    privateJwk,
-    publicJwk,
+    privateJwk: exportedPrivate,
+    publicJwk: exportedPublic,
   };
 }
 
