@@ -138,9 +138,13 @@ Cloudflare's [one-time PIN](https://developers.cloudflare.com/cloudflare-one/int
 | A newer code was requested | The user pressed resend, or opened the login page twice, then typed the older code | Requesting a PIN invalidates the previous one. Use the newest mail, or restart from one login tab. |
 | Code is past its window | More than ten minutes since the request | Request a fresh code. Expiry runs from the request, not from delivery. |
 
-When the mail path is not the operator's to change, the durable fix is the Access application's identity provider, not this deployment: any [supported provider](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/) that does not mail a code removes the failure, and `access.issuer` and `access.audience` survive the switch because the audience belongs to the application. Changing a sign-in method requires explicit operator approval and a re-run of the allowed and denied identity checks.
+When the mail path is not the operator's to change, the durable fix is the Access application's identity provider, not this deployment: `access.issuer` and `access.audience` survive the switch because the audience belongs to the application. Changing a sign-in method requires explicit operator approval and a re-run of the allowed and denied identity checks.
+
+Do not assume that ends emailed codes. An operator who needs code sign-in keeps it by moving who sends the code, and the requirement to hold them to is that **the email contains a code and no link** — a scanner spends links and has nothing to spend in bare digits. Any OIDC provider whose passwordless email template the operator controls satisfies it; another magic-link provider, or one that mails a code alongside a link as Cloudflare's does, reproduces the failure under a new name. Require a raw test message showing no `<a href` as the acceptance evidence, before the application is reconfigured. See `docs/customization.md`.
 
 Treat the email claim as the migration risk in that switch, not the JWT. Accounts and the `admins` list are both keyed by the address Access asserts, so a provider that asserts a different address for the same person creates an empty account and silently drops their admin rights instead of failing. Compare the new provider's claims against existing identities and `access.admins` before switching a deployment that already has users, and verify an existing user's data is still present afterwards.
+
+Narrowing the application to one unproven provider is a lockout risk, and `access.admins` cannot recover it because `/admin` sits behind Access. Keep an authenticated session open in a second browser, or leave a second login method enabled, until a real sign-in through the new provider succeeds.
 
 ### Evaluation route is unexpectedly public
 

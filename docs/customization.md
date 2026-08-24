@@ -110,11 +110,33 @@ That email carries both the code and a link that completes the sign-in, and the 
 The fixes are in the mail path or in the provider:
 
 - Allowlist `noreply@notify.cloudflare.com` in the mail security product, exempting it from link rewriting and scanning. This is the remedy Cloudflare documents, and it is the one to try first.
-- Where that allowlist is not yours to change, move the application to an identity provider that does not send codes by mail. Any [supported provider](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/) works. The audience belongs to the application rather than the provider, so `issuer` and `audience` both survive the switch and the Workshop keeps trusting the same signed JWT.
+- Where that allowlist is not yours to change, move the application to a different [identity provider](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/). The audience belongs to the application rather than the provider, so `issuer` and `audience` both survive the switch and the Workshop keeps trusting the same signed JWT. This does not mean giving up codes — see [Email codes without the allowlist](#email-codes-without-the-allowlist).
 
 Both are Access configuration, not deployment configuration. Neither requires a change to `deployment.jsonc` or a `pnpm deploy`.
 
 Swapping the provider does carry one risk worth checking first: a Workshop account is keyed by the email claim in the Access JWT, and `admins` is matched against that same claim. A provider that asserts the same address for a person keeps their account and their admin rights. One that asserts a different address — a corporate alias instead of the primary, say — signs them in as a new and empty user, quietly rather than with an error. Compare the claims the new provider issues against the existing `admins` entries before moving a deployment that already has users.
+
+#### Email codes without the allowlist
+
+The allowlist belongs to whoever runs the mail security product, and often that is not you. Cloudflare's side is fixed too: the one-time PIN email is theirs, and neither the template nor the link inside it is configurable. So when the allowlist is unavailable, that provider cannot be made to work, and nothing in this repository changes that.
+
+Signing in with an emailed code is still available. What has to change is who sends the code, and the property that has to hold is narrower than "a different provider" — it is worth naming exactly:
+
+> The email must contain a code and no link.
+
+A scanner spends links. It has nothing to spend in a bare six digits. That is the whole mechanism, and reading it that way is what keeps the next choice from repeating this one: a provider that mails a magic link, or that mails a code *and* a link as Cloudflare's does, reproduces this failure under a new name. Vendor reputation is not the variable.
+
+So point the Access application at an OIDC provider whose passwordless email you control, and set it to send a code:
+
+1. Stand up the provider and configure its passwordless email connection for **code**, not magic link. In [Auth0](https://auth0.com/docs/authenticate/passwordless) this is the passwordless email connection's delivery setting; a self-hosted OIDC server works equally well when you own the templates outright.
+2. Send yourself a test code and read the raw message before going further. It should contain no `<a href` and no tracking or unsubscribe URL. This is the acceptance test for the whole change, and it takes a minute.
+3. Add the provider under **Zero Trust → Integrations → Identity providers**, using its named integration or [generic OIDC](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/generic-oidc/). Request the `email` scope, and confirm the provider returns an `email` claim.
+4. On the Access application's **Authentication** tab, turn off **Accept all available identity providers** and select only the new one, so nobody is offered the broken option. **Apply instant authentication** then sends users straight there instead of showing the provider chooser.
+5. Sign in as an existing non-admin user and as an admin, and confirm the existing chats and `/admin` are both still there. That is what proves the email claim matched, per the caveat above.
+
+None of this is deployment configuration. `deployment.jsonc` is unchanged, `issuer` and `audience` stay valid because the audience belongs to the application rather than the provider, and there is no `pnpm deploy`.
+
+Keep a way back in before step 4 removes the old login method. Narrowing an application to a single provider you have not signed in through yet is how people lock themselves out of their own deployment, and the `admins` list cannot help because reaching `/admin` requires getting through Access first. Verify the new provider in one browser while an authenticated session is still open in another, or leave a second login method enabled until the first real sign-in succeeds.
 
 ### Storage
 
