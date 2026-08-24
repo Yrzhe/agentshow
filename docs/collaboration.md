@@ -369,8 +369,8 @@ widget 的字节**算进 project 现有的配额**，和文件同一个额度：
   说法，而 widget 就是那个单位。想聊，把要聊的东西作为普通文件写进 `shared/`。
 - **widget 的隔离到"另一个 origin"那种程度**：前端和这个部署同源，所以 CSP 划不出那道墙。真要划得给
   widget 一个自己的 origin，那是部署形状的改动。
-- **实时协同编辑**：明确不做。这一层是 view → comment。官方用 Yjs 做 gadget 代码的实时编辑，文档没有
-  走这条路。
+- **实时协同编辑**：明确不做。这一层是 view → comment。官方自己在 gadget 代码上做实时编辑（先是 Yjs，
+  从 `1ef6020` 起换成 git 存储 + OT），文档没有走这条路。
 - **文件的 git 语义**：`moveFile()` / `copyFile()` 之外没有历史和分支。widget 也一样：
   `setWidgetBackend()` 覆盖一次，上一版就没了。
 - **view → issue**：没做。
