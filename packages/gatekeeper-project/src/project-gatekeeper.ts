@@ -29,7 +29,7 @@ import type {
 import { boundAgentCatalog } from "@gadgets/workshop-shared/gatekeeper";
 import { applyAction, rejectAction, revertAction } from "./actions.js";
 import { configuredDomain, domainName } from "./domain.js";
-import { fileUrl, projectUrl } from "./links.js";
+import { fileUrl, projectUrl, widgetUrl } from "./links.js";
 import { newId, parseSet, projectSet } from "./model.js";
 import { ProjectObserverTracker, type ProjectVerifierApi } from "./observers.js";
 import {
@@ -85,6 +85,18 @@ function projectStoreFor(
 function memberIndexFor(exports: Cloudflare.Exports, props: ProjectAccountProps) {
   const namespace = exports.MemberProjectsDurableObject;
   return namespace.get(namespace.idFromName(domainName(props.sharingDomain, props.accountId)));
+}
+
+/** One widget's own store, named as the HTTP route names it so both reach the same object. */
+function widgetStoreFor(
+  exports: Cloudflare.Exports,
+  sharingDomain: string,
+  projectId: string,
+  widgetId: string,
+) {
+  const namespace = exports.WidgetStoreDurableObject;
+  return namespace.get(
+    namespace.idFromName(domainName(sharingDomain, `${projectId}/${widgetId}`)));
 }
 
 // ---------------------------------------------------------------------------
@@ -371,9 +383,18 @@ export class ProjectGatekeeper
         await env.PROJECT_FILES.put(key, bytes);
         return key;
       },
+      stageWidgetBytes: async (projectId, widgetId, path, bytes) => {
+        const key = widgetContentKey(props.sharingDomain, projectId, widgetId, path);
+        await env.PROJECT_FILES.put(key, bytes);
+        return key;
+      },
       discardBytes: (key) => env.PROJECT_FILES.delete(key),
+      clearWidgetStore: async (projectId, widgetId) => {
+        await widgetStoreFor(exports, props.sharingDomain, projectId, widgetId).deleteAll();
+      },
       projectUrl: (projectId) => projectUrl(env, projectId),
       fileUrl: (projectId, fileId) => fileUrl(env, projectId, fileId),
+      widgetUrl: (projectId, widgetId) => widgetUrl(env, projectId, widgetId),
     };
   }
 
@@ -452,4 +473,21 @@ function actionKey(action: number): string {
 /** Where one version of a file's bytes lives in the deployment's bucket. */
 function contentKey(sharingDomain: string, projectId: string, fileId: string): string {
   return `${encodeURIComponent(sharingDomain)}/${projectId}/${fileId}/${newId(8)}`;
+}
+
+/**
+ * Where one version of a widget's file lives.
+ *
+ * Under its own prefix, so a bucket listing shows which objects belong to widgets, and with the
+ * same fresh-id suffix a file gets: an unapproved write must not be able to overwrite what the
+ * widget is currently serving.
+ */
+function widgetContentKey(
+  sharingDomain: string,
+  projectId: string,
+  widgetId: string,
+  path: string,
+): string {
+  return `${encodeURIComponent(sharingDomain)}/${projectId}/widgets/${widgetId}/` +
+    `${encodeURIComponent(path)}/${newId(8)}`;
 }

@@ -12,6 +12,7 @@ import {
   DEFAULT_QUOTA,
   LINK_LIFETIME_MS,
   ProjectError,
+  WIDGET_BACKEND_PATH,
   canDelete,
   canRead,
   canWrite,
@@ -24,9 +25,11 @@ import {
   parseSet,
   snippet,
   visibilityAfterMove,
+  widgetAssetPath,
   type ProjectQuota,
+  type WidgetPrincipal,
 } from "./model.js";
-import { fileUrl, projectUrl } from "./links.js";
+import { fileUrl, projectUrl, widgetUrl } from "./links.js";
 import type {
   ProjectComment,
   ProjectCommentAnchor,
@@ -37,6 +40,9 @@ import type {
   ProjectMember,
   ProjectRole,
   ProjectSummary,
+  ProjectWidgetFile,
+  ProjectWidgetFileContent,
+  ProjectWidgetSummary,
 } from "./types.js";
 
 /** Who is asking, as the gatekeeper facet knows them. */
@@ -75,6 +81,62 @@ export interface StagedWrite {
   indexedText: string;
 }
 
+/** A widget whose details have been validated but which does not exist yet. */
+export interface StagedWidget {
+  widgetId: string;
+  name: string;
+  path: string;
+  description: string;
+  visibility: ProjectFileVisibility;
+}
+
+/** A write to one file inside a widget, whose bytes are already in R2. */
+export interface StagedWidgetFile {
+  widgetId: string;
+  contentKey: string;
+  path: string;
+  mimeType: string;
+  size: number;
+}
+
+/**
+ * What a widget's address resolves to for whoever asked.
+ *
+ * A result rather than an exception for the same reason `LinkResult` is: the caller is the HTTP
+ * handler, which needs a status code and gets a plain `Error` across the RPC boundary.
+ */
+export type WidgetAssetResult =
+  | {
+      ok: true;
+      bytes: Uint8Array;
+      mimeType: string;
+      path: string;
+      visibility: ProjectFileVisibility;
+      principal: WidgetPrincipal;
+      /** A fresh capability to put in the caller's cookie, for a caller who presented one. */
+      renewedToken?: string;
+    }
+  | { ok: false; status: number; message: string };
+
+/** Everything needed to run one widget's backend for one request, and nothing more. */
+export type WidgetBackendResult =
+  | {
+      ok: true;
+      widgetId: string;
+      projectId: string;
+      name: string;
+      visibility: ProjectFileVisibility;
+      principal: WidgetPrincipal;
+      /** The backend module's source. */
+      source: string;
+      /** The project's shared configuration, values included: this is the widget's environment. */
+      envVars: Record<string, string>;
+      /** Changes whenever the module or the configuration does, so a stale isolate is not reused. */
+      revision: string;
+      renewedToken?: string;
+    }
+  | { ok: false; status: number; message: string };
+
 // Row shapes are type aliases rather than interfaces so that `sql.exec<Row>` accepts them: only a
 // type alias picks up the implicit index signature that `Record<string, SqlStorageValue>` demands.
 type FileRow = {
@@ -98,6 +160,26 @@ type MemberRow = {
   display_name: string;
   role: string;
   joined: number;
+};
+
+type WidgetRow = {
+  widget_id: string;
+  name: string;
+  path: string;
+  description: string;
+  visibility: string;
+  owner_id: string;
+  created: number;
+  updated: number;
+};
+
+type WidgetFileRow = {
+  widget_id: string;
+  path: string;
+  mime_type: string;
+  size: number;
+  content_key: string;
+  updated: number;
 };
 
 const SCHEMA = `
@@ -154,6 +236,26 @@ CREATE TABLE IF NOT EXISTS invites (
   role TEXT NOT NULL,
   expires INTEGER NOT NULL,
   revoked INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS widgets (
+  widget_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  path TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  visibility TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  created INTEGER NOT NULL,
+  updated INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS widgets_by_owner ON widgets (owner_id);
+CREATE TABLE IF NOT EXISTS widget_files (
+  widget_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  content_key TEXT NOT NULL,
+  updated INTEGER NOT NULL,
+  PRIMARY KEY (widget_id, path)
 );
 `;
 
@@ -664,6 +766,304 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
   }
 
   // ---------------------------------------------------------------------------
+  // Widgets
+  //
+  // A widget answers to the same rules a file does, deliberately: `canRead` decides who may open
+  // it, `canWrite` decides who may change it, `canDelete` lets a project owner moderate. What is
+  // different is that a widget is opened over HTTP by a browser rather than read over RPC by an
+  // agent, so this section also holds the two methods that decide without a member id in hand --
+  // `fetchWidgetAsset` and `openWidgetBackend` -- and both of them re-derive the caller's standing
+  // from current state on every single request.
+
+  async listWidgets(memberId: string, opts: { limit: number }): Promise<ProjectWidgetSummary[]> {
+    const member = this.#requireMember(memberId);
+    return this.ctx.storage.sql.exec<WidgetRow>(
+      "SELECT * FROM widgets ORDER BY updated DESC").toArray()
+      .filter((row) => canRead(row.visibility as ProjectFileVisibility, row.owner_id,
+                               { memberId: member.member_id, isMember: true }))
+      .slice(0, opts.limit)
+      .map((row) => this.#summarizeWidget(row, memberId));
+  }
+
+  async statWidget(memberId: string, widgetId: string): Promise<ProjectWidgetSummary> {
+    return this.#summarizeWidget(this.#readableWidget(memberId, widgetId), memberId);
+  }
+
+  /**
+   * What creating a widget would produce, without creating it.
+   *
+   * The same plan/commit split file writes use, and for the same reason: a name already taken is
+   * something the agent can fix now, and a human should not be asked about a widget that was never
+   * going to exist.
+   */
+  async planWidget(memberId: string, plan: {
+    path: string;
+    visibility?: ProjectFileVisibility;
+  }): Promise<{ widgetId: string; visibility: ProjectFileVisibility }> {
+    this.#requireMember(memberId);
+    if (this.#widgetByPath(plan.path)) {
+      throw new ProjectError(`${plan.path} is already taken by another widget.`, 409);
+    }
+    if (this.#rowByPath(plan.path)) {
+      throw new ProjectError(`${plan.path} is already taken by a file.`, 409);
+    }
+    return {
+      widgetId: newId(),
+      visibility: plan.visibility ?? defaultVisibility(plan.path),
+    };
+  }
+
+  async commitWidget(memberId: string, widget: StagedWidget): Promise<ProjectWidgetSummary> {
+    this.#requireMember(memberId);
+    if (this.#widget(widget.widgetId)) {
+      throw new ProjectError("That widget already exists.", 409);
+    }
+    const occupant = this.#widgetByPath(widget.path);
+    if (occupant) throw new ProjectError(`${widget.path} is already taken.`, 409);
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      "INSERT INTO widgets (widget_id, name, path, description, visibility, owner_id, created, " +
+      "updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      widget.widgetId, widget.name, widget.path, widget.description, widget.visibility, memberId,
+      now, now);
+    return this.#summarizeWidget(this.#requireWidget(widget.widgetId), memberId);
+  }
+
+  /** What a write to one of a widget's files would cost, and what it would replace. */
+  async planWidgetFile(memberId: string, widgetId: string, plan: {
+    path: string;
+    size: number;
+  }): Promise<{ replacesContentKey?: string }> {
+    this.#requireMember(memberId);
+    const widget = this.#writableWidget(memberId, widgetId);
+    const existing = this.#widgetFile(widget.widget_id, plan.path);
+    this.#enforceQuota(plan.size, existing);
+    return existing ? { replacesContentKey: existing.content_key } : {};
+  }
+
+  async commitWidgetFile(
+    memberId: string,
+    write: StagedWidgetFile,
+  ): Promise<ProjectWidgetFile> {
+    this.#requireMember(memberId);
+    const widget = this.#writableWidget(memberId, write.widgetId);
+    const existing = this.#widgetFile(widget.widget_id, write.path);
+    // Again against what the project holds now: approval takes as long as a person takes.
+    this.#enforceQuota(write.size, existing);
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      "INSERT INTO widget_files (widget_id, path, mime_type, size, content_key, updated) " +
+      "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (widget_id, path) DO UPDATE SET " +
+      "mime_type = excluded.mime_type, size = excluded.size, content_key = excluded.content_key, " +
+      "updated = excluded.updated",
+      write.widgetId, write.path, write.mimeType, write.size, write.contentKey, now);
+    this.ctx.storage.sql.exec(
+      "UPDATE widgets SET updated = ? WHERE widget_id = ?", now, write.widgetId);
+    if (existing && existing.content_key !== write.contentKey) {
+      await this.#deleteObject(existing.content_key);
+    }
+    return toWidgetFile(this.#requireWidgetFile(write.widgetId, write.path));
+  }
+
+  async listWidgetFiles(memberId: string, widgetId: string): Promise<ProjectWidgetFile[]> {
+    const widget = this.#readableWidget(memberId, widgetId);
+    return this.#widgetFiles(widget.widget_id).map(toWidgetFile);
+  }
+
+  async readWidgetFile(
+    memberId: string,
+    widgetId: string,
+    path: string,
+  ): Promise<ProjectWidgetFileContent> {
+    const widget = this.#readableWidget(memberId, widgetId);
+    const row = this.#widgetFile(widget.widget_id, path);
+    if (!row) throw notFound(`${path} in that widget`);
+    return {
+      ...toWidgetFile(row),
+      content: encodeContent(await this.#widgetBytes(widget, row), row.mime_type),
+    };
+  }
+
+  async deleteWidgetFile(memberId: string, widgetId: string, path: string): Promise<void> {
+    this.#requireMember(memberId);
+    const widget = this.#writableWidget(memberId, widgetId);
+    const row = this.#widgetFile(widget.widget_id, path);
+    if (!row) return;
+    this.ctx.storage.sql.exec(
+      "DELETE FROM widget_files WHERE widget_id = ? AND path = ?", widget.widget_id, path);
+    this.ctx.storage.sql.exec(
+      "UPDATE widgets SET updated = ? WHERE widget_id = ?", Date.now(), widget.widget_id);
+    await this.#deleteObject(row.content_key);
+  }
+
+  /** Move a widget, taking the visibility its new path implies. Public survives the move. */
+  async moveWidget(
+    memberId: string,
+    widgetId: string,
+    path: string,
+  ): Promise<ProjectWidgetSummary> {
+    this.#requireMember(memberId);
+    const widget = this.#writableWidget(memberId, widgetId);
+    const occupant = this.#widgetByPath(path);
+    if (occupant && occupant.widget_id !== widget.widget_id) {
+      throw new ProjectError(`${path} is already taken.`, 409);
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE widgets SET path = ?, visibility = ?, updated = ? WHERE widget_id = ?",
+      path, visibilityAfterMove(widget.visibility as ProjectFileVisibility, path), Date.now(),
+      widget.widget_id);
+    return this.#summarizeWidget(this.#requireWidget(widget.widget_id), memberId);
+  }
+
+  async setWidgetVisibility(
+    memberId: string,
+    widgetId: string,
+    visibility: ProjectFileVisibility,
+  ): Promise<ProjectWidgetSummary> {
+    this.#requireMember(memberId);
+    const widget = this.#writableWidget(memberId, widgetId);
+    this.ctx.storage.sql.exec(
+      "UPDATE widgets SET visibility = ?, updated = ? WHERE widget_id = ?",
+      visibility, Date.now(), widget.widget_id);
+    return this.#summarizeWidget(this.#requireWidget(widget.widget_id), memberId);
+  }
+
+  /**
+   * Delete a widget and everything it served. Its owner may; a project owner may, to moderate.
+   *
+   * Reports whether the widget existed, so the caller can decide whether to throw away the widget's
+   * own store -- which lives in a different Durable Object and is not this object's to reach.
+   */
+  async deleteWidget(memberId: string, widgetId: string): Promise<{ deleted: boolean }> {
+    const member = this.#requireMember(memberId);
+    const widget = this.#widget(widgetId);
+    if (!widget) return { deleted: false };
+    if (!canDelete(widget.owner_id, { memberId, role: member.role as ProjectRole })) {
+      throw new ProjectError(
+        `The widget ${widget.path} belongs to another member, so only they or a project owner can ` +
+        `delete it.`, 403);
+    }
+    const files = this.#widgetFiles(widgetId);
+    this.ctx.storage.sql.exec("DELETE FROM widget_files WHERE widget_id = ?", widgetId);
+    this.ctx.storage.sql.exec("DELETE FROM widgets WHERE widget_id = ?", widgetId);
+    for (const file of files) await this.#deleteObject(file.content_key);
+    return { deleted: true };
+  }
+
+  /**
+   * A link that opens a widget: stable for a public one, short-lived and signed for every other.
+   *
+   * The token names the widget and the member it was minted for, so it proves only that this member
+   * could open this widget when it was signed. Whether they still can is decided again on every
+   * request the browser makes with it.
+   */
+  async mintWidgetLink(
+    memberId: string,
+    widgetId: string,
+  ): Promise<{ url: string; expires: string | null }> {
+    const widget = this.#readableWidget(memberId, widgetId);
+    const url = widgetUrl(this.env, this.#requireProject().project_id, widget.widget_id);
+    if (widget.visibility === "public") return { url, expires: null };
+    const token = await this.#mintWidgetToken(widget.widget_id, memberId);
+    return {
+      url: `${url}?t=${encodeURIComponent(token.token)}`,
+      expires: new Date(token.expires).toISOString(),
+    };
+  }
+
+  /**
+   * One of a widget's files, for the Worker's HTTP route.
+   *
+   * No member identity arrives with an HTTP request, so the caller's standing is worked out here,
+   * from the token they presented and from what the widget's visibility and the project's membership
+   * say right now. That is the whole point of deciding it here rather than once at link time: an
+   * owner who makes a widget private again has cut off every cookie already in a browser.
+   */
+  async fetchWidgetAsset(
+    widgetId: string,
+    tokens: readonly string[],
+    assetPath: string,
+  ): Promise<WidgetAssetResult> {
+    const opened = await this.#openWidget(widgetId, tokens);
+    if (!opened.ok) return opened;
+    const { widget, principal, renewedToken } = opened;
+    const path = widgetAssetPath(assetPath);
+    // The backend module is code, not an asset: serving it would hand its source, and anything it
+    // has inlined, to everyone who can open the widget.
+    if (path === WIDGET_BACKEND_PATH) {
+      const refused = notFound("That file");
+      return { ok: false, status: refused.status, message: refused.message };
+    }
+    const row = this.#widgetFile(widget.widget_id, path);
+    if (!row) {
+      const refused = notFound(`${path} in that widget`);
+      return { ok: false, status: refused.status, message: refused.message };
+    }
+    try {
+      return {
+        ok: true,
+        bytes: await this.#widgetBytes(widget, row),
+        mimeType: row.mime_type,
+        path: row.path,
+        visibility: widget.visibility as ProjectFileVisibility,
+        principal,
+        ...(renewedToken ? { renewedToken } : {}),
+      };
+    } catch (error) {
+      const failure = error instanceof ProjectError ? error : new ProjectError(String(error), 500);
+      return { ok: false, status: failure.status, message: failure.message };
+    }
+  }
+
+  /**
+   * What a widget's backend needs to answer one request.
+   *
+   * The environment is assembled here rather than in the handler because this object is the only
+   * one that may read a project's shared configuration, and because the decision about who is
+   * asking has to be made in the same breath as the decision about what they get. Note what is not
+   * in the answer: no R2 keys, no other members' files, no token belonging to whoever is browsing.
+   */
+  async openWidgetBackend(
+    widgetId: string,
+    tokens: readonly string[],
+  ): Promise<WidgetBackendResult> {
+    const opened = await this.#openWidget(widgetId, tokens);
+    if (!opened.ok) return opened;
+    const { widget, principal, renewedToken } = opened;
+    const backend = this.#widgetFile(widget.widget_id, WIDGET_BACKEND_PATH);
+    if (!backend) {
+      return {
+        ok: false,
+        status: 404,
+        message: `The widget ${widget.name} has no backend, so it answers nothing under api/.`,
+      };
+    }
+    try {
+      const source = new TextDecoder().decode(await this.#widgetBytes(widget, backend));
+      const vars = this.ctx.storage.sql.exec<{ name: string; value: string; updated: number }>(
+        "SELECT name, value, updated FROM env_vars ORDER BY name").toArray();
+      return {
+        ok: true,
+        widgetId: widget.widget_id,
+        projectId: this.#requireProject().project_id,
+        name: widget.name,
+        visibility: widget.visibility as ProjectFileVisibility,
+        principal,
+        source,
+        envVars: Object.fromEntries(vars.map((row) => [row.name, row.value])),
+        // Enough to notice any change that should retire a running isolate: the module itself, and
+        // the configuration it was built with.
+        revision: `${backend.content_key}.${vars.length}.${
+          vars.reduce((latest, row) => Math.max(latest, row.updated), 0)}`,
+        ...(renewedToken ? { renewedToken } : {}),
+      };
+    } catch (error) {
+      const failure = error instanceof ProjectError ? error : new ProjectError(String(error), 500);
+      return { ok: false, status: failure.status, message: failure.message };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Links and observer checks
 
   /**
@@ -697,6 +1097,12 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
     const member = this.#member(memberId);
     if (!member) return false;
     if (parsed.kind === "project") return true;
+    if (parsed.kind === "widget") {
+      const widget = this.#widget(parsed.widgetId);
+      if (!widget) return false;
+      return canRead(widget.visibility as ProjectFileVisibility, widget.owner_id,
+                     { memberId, isMember: true });
+    }
     const row = this.#row(parsed.fileId);
     if (!row) return false;
     return canRead(row.visibility as ProjectFileVisibility, row.owner_id,
@@ -727,7 +1133,7 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
    * is too big while it can still do something about it; committing is the check that holds, because
    * approval takes as long as a person takes and the project may have filled up in between.
    */
-  #enforceQuota(size: number, existing: FileRow | undefined): void {
+  #enforceQuota(size: number, existing: { size: number } | undefined): void {
     const quota = this.#quota();
     if (size > quota.maxFileBytes) {
       throw new ProjectError(
@@ -746,10 +1152,19 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
     }
   }
 
+  /**
+   * What this project holds, files and widget files together.
+   *
+   * One total rather than two, because the quota is a statement about what a deployment is paying
+   * for and the bytes of a widget's `index.html` cost exactly what the bytes of a document cost.
+   * Splitting them would give a member a second allowance nobody decided to grant.
+   */
   #totals(): { count: number; bytes: number } {
-    const row = this.ctx.storage.sql.exec<{ count: number; bytes: number | null }>(
-      "SELECT COUNT(*) AS count, SUM(size) AS bytes FROM files").one();
-    return { count: row.count, bytes: row.bytes ?? 0 };
+    const row = this.ctx.storage.sql.exec<{ count: number; bytes: number }>(
+      "SELECT (SELECT COUNT(*) FROM files) + (SELECT COUNT(*) FROM widget_files) AS count, " +
+      "COALESCE((SELECT SUM(size) FROM files), 0) + " +
+      "COALESCE((SELECT SUM(size) FROM widget_files), 0) AS bytes").one();
+    return { count: row.count, bytes: row.bytes };
   }
 
   #projectRow(): { project_id: string; name: string; description: string } | undefined {
@@ -847,6 +1262,166 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
     };
   }
 
+  #widget(widgetId: string): WidgetRow | undefined {
+    return this.ctx.storage.sql.exec<WidgetRow>(
+      "SELECT * FROM widgets WHERE widget_id = ?", widgetId).toArray()[0];
+  }
+
+  #requireWidget(widgetId: string): WidgetRow {
+    const widget = this.#widget(widgetId);
+    if (!widget) throw notFound("That widget");
+    return widget;
+  }
+
+  #widgetByPath(path: string): WidgetRow | undefined {
+    return this.ctx.storage.sql.exec<WidgetRow>(
+      "SELECT * FROM widgets WHERE path = ?", path).toArray()[0];
+  }
+
+  #readableWidget(memberId: string, widgetId: string): WidgetRow {
+    const widget = this.#requireWidget(widgetId);
+    const allowed = canRead(widget.visibility as ProjectFileVisibility, widget.owner_id,
+                            { memberId, isMember: this.#member(memberId) !== undefined });
+    if (!allowed) throw notFound("That widget");
+    return widget;
+  }
+
+  /**
+   * A widget this member may change, which is only one of their own.
+   *
+   * The same rule files have, and the same reason: a project is a place to publish your own work
+   * and comment on other people's. A member who wants a different widget builds their own.
+   */
+  #writableWidget(memberId: string, widgetId: string): WidgetRow {
+    const widget = this.#readableWidget(memberId, widgetId);
+    if (!canWrite(widget.owner_id, memberId)) {
+      throw new ProjectError(
+        `The widget ${widget.path} belongs to another member and only its owner can change it.`,
+        403);
+    }
+    return widget;
+  }
+
+  #widgetFiles(widgetId: string): WidgetFileRow[] {
+    return this.ctx.storage.sql.exec<WidgetFileRow>(
+      "SELECT * FROM widget_files WHERE widget_id = ? ORDER BY path", widgetId).toArray();
+  }
+
+  #widgetFile(widgetId: string, path: string): WidgetFileRow | undefined {
+    return this.ctx.storage.sql.exec<WidgetFileRow>(
+      "SELECT * FROM widget_files WHERE widget_id = ? AND path = ?", widgetId, path).toArray()[0];
+  }
+
+  #requireWidgetFile(widgetId: string, path: string): WidgetFileRow {
+    const row = this.#widgetFile(widgetId, path);
+    if (!row) throw notFound(`${path} in that widget`);
+    return row;
+  }
+
+  #summarizeWidget(row: WidgetRow, memberId: string): ProjectWidgetSummary {
+    const owner = this.#member(row.owner_id);
+    const files = this.#widgetFiles(row.widget_id);
+    return {
+      widgetId: row.widget_id,
+      name: row.name,
+      path: row.path,
+      description: row.description,
+      visibility: row.visibility as ProjectFileVisibility,
+      ownerId: row.owner_id,
+      ownerName: owner?.display_name ?? "",
+      writable: canWrite(row.owner_id, memberId),
+      fileCount: files.length,
+      size: files.reduce((total, file) => total + file.size, 0),
+      hasBackend: files.some((file) => file.path === WIDGET_BACKEND_PATH),
+      updated: new Date(row.updated).toISOString(),
+      url: widgetUrl(this.env, this.#requireProject().project_id, row.widget_id),
+    };
+  }
+
+  async #widgetBytes(widget: WidgetRow, row: WidgetFileRow): Promise<Uint8Array> {
+    const object = await this.env.PROJECT_FILES.get(row.content_key);
+    if (!object) {
+      throw new ProjectError(
+        `${row.path} in the widget ${widget.path} has metadata but no stored contents. ` +
+        `Write it again.`, 410);
+    }
+    return new Uint8Array(await object.arrayBuffer());
+  }
+
+  /**
+   * Who is asking for a widget, decided from scratch.
+   *
+   * Both HTTP entry points start here, so both apply the same three-step answer for each capability
+   * offered: is the token real, is the member it names still a member, and does the widget's
+   * visibility right now let them in. Every token failing that falls through to the public question
+   * rather than refusing outright, so a stale cookie left over from a private spell does not break
+   * a widget that has since been published.
+   */
+  async #openWidget(widgetId: string, tokens: readonly string[]): Promise<
+    | { ok: true; widget: WidgetRow; principal: WidgetPrincipal; renewedToken?: string }
+    | { ok: false; status: number; message: string }
+  > {
+    const widget = this.#widget(widgetId);
+    if (widget) {
+      for (const token of tokens) {
+        const claimed = await this.#verifyWidgetToken(widgetId, token);
+        const member = claimed ? this.#member(claimed) : undefined;
+        if (!claimed || !member) continue;
+        const allowed = canRead(widget.visibility as ProjectFileVisibility, widget.owner_id,
+                                { memberId: claimed, isMember: true });
+        if (!allowed) continue;
+        // Renewed on every request, which is safe precisely because every request is re-checked: an
+        // open widget stays open while the browser keeps using it, and closes the moment the answer
+        // above changes.
+        const renewed = await this.#mintWidgetToken(widgetId, claimed);
+        return {
+          ok: true,
+          widget,
+          principal: { kind: "member", memberId: claimed, role: member.role as ProjectRole },
+          renewedToken: renewed.token,
+        };
+      }
+      if (widget.visibility === "public") {
+        return { ok: true, widget, principal: { kind: "public" } };
+      }
+    }
+    const refused = notFound("That widget");
+    return { ok: false, status: refused.status, message: refused.message };
+  }
+
+  async #mintWidgetToken(
+    widgetId: string,
+    memberId: string,
+  ): Promise<{ token: string; expires: number }> {
+    const expires = Date.now() + LINK_LIFETIME_MS;
+    const signature = await this.#sign(widgetTokenPayload(widgetId, memberId, expires));
+    return {
+      token: `${encodeURIComponent(memberId)}.${expires}.${signature}`,
+      expires,
+    };
+  }
+
+  /** The member a widget token still vouches for, or null. */
+  async #verifyWidgetToken(widgetId: string, token: string): Promise<string | null> {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const [subject, expiresText, signature] = parts;
+    const expires = Number(expiresText);
+    if (!subject || !signature || !Number.isSafeInteger(expires) || expires <= Date.now()) {
+      return null;
+    }
+    let memberId: string;
+    try {
+      memberId = decodeURIComponent(subject);
+    } catch {
+      return null;
+    }
+    // The widget id is inside the signed payload, so a cookie or token from one widget proves
+    // nothing about another even though both were signed by this same project.
+    const expected = await this.#sign(widgetTokenPayload(widgetId, memberId, expires));
+    return timingSafeEqual(signature, expected) ? memberId : null;
+  }
+
   #comment(commentId: string): CommentRow | undefined {
     return this.ctx.storage.sql.exec<CommentRow>(
       "SELECT * FROM comments WHERE comment_id = ?", commentId).toArray()[0];
@@ -930,6 +1505,25 @@ type CommentRow = {
   resolved: number;
   created: number;
 };
+
+/**
+ * What a widget token signs over.
+ *
+ * Prefixed so that no widget token can ever be a valid file token or the reverse: both are HMACs
+ * over the same project key, and the prefix is what keeps the two vocabularies apart.
+ */
+function widgetTokenPayload(widgetId: string, memberId: string, expires: number): string {
+  return `w.${widgetId}.${memberId}.${expires}`;
+}
+
+function toWidgetFile(row: WidgetFileRow): ProjectWidgetFile {
+  return {
+    path: row.path,
+    mimeType: row.mime_type,
+    size: row.size,
+    updated: new Date(row.updated).toISOString(),
+  };
+}
 
 function toMember(row: MemberRow): ProjectMember {
   return {

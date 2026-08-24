@@ -15,6 +15,7 @@ export default defineConfig({
         durableObjects: {
           PROJECT_STORE: { className: "ProjectDurableObject", useSQLite: true },
           MEMBER_PROJECTS: { className: "MemberProjectsDurableObject", useSQLite: true },
+          WIDGET_STORE: { className: "WidgetStoreDurableObject", useSQLite: true },
           PROJECT_GATEKEEPER: { className: "ProjectGatekeeper", useSQLite: true },
           // The gatekeeper facet reads `ctx.props`, and a `DurableObjectClass` carrying props is
           // only reachable through `ctx.facets` -- so the suites drive it from a hook Durable
@@ -22,6 +23,9 @@ export default defineConfig({
           TEST_HOOKS: { className: "TestHooks", useSQLite: true },
         },
         r2Buckets: ["PROJECT_FILES"],
+        // The real thing, not a stand-in: a widget's backend runs in an isolate here too, so the
+        // suites can check what its `env` holds and what it cannot reach.
+        workerLoaders: { WIDGET_LOADER: {} },
         bindings: {
           PUBLIC_BASE_URL: "https://os.example.com",
           PROJECT_SHARING_DOMAIN: "https://os.example.com",

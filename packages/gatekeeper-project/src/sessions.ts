@@ -12,7 +12,10 @@ import { validateRpc } from "capnweb-validate";
 import type { ActionDescription, ObservationDescription } from "@gadgets/workshop-shared/gatekeeper";
 import {
   LINK_LIFETIME_MS,
+  MAX_WIDGET_BACKEND_BYTES,
   ProjectError,
+  WIDGET_BACKEND_PATH,
+  WIDGET_INDEX_PATH,
   decodeContent,
   fileName,
   fileSet,
@@ -20,8 +23,10 @@ import {
   formatInviteCode,
   indexedText,
   inferMimeType,
+  isWidgetBackendPath,
   newId,
   normalizePath,
+  normalizeWidgetPath,
   notFound,
   parseAnchor,
   parseCommentBody,
@@ -34,8 +39,10 @@ import {
   parseVisibility,
   projectSet,
   visibilityAfterMove,
+  widgetSet,
+  widgetSets,
 } from "./model.js";
-import type { StagedWrite } from "./project-store.js";
+import type { StagedWidget, StagedWidgetFile, StagedWrite } from "./project-store.js";
 import type {
   ProjectComment,
   ProjectCommentAnchor,
@@ -51,6 +58,9 @@ import type {
   ProjectRequest,
   ProjectRole,
   ProjectSummary,
+  ProjectWidgetFile,
+  ProjectWidgetFileContent,
+  ProjectWidgetSummary,
   ProjectWorkspace,
 } from "./types.js";
 
@@ -97,6 +107,24 @@ export interface ProjectStore {
   setEnvVar(memberId: string, name: string, value: string, description: string): Promise<void>;
   deleteEnvVar(memberId: string, name: string): Promise<void>;
   mintLink(memberId: string, fileId: string): Promise<{ url: string; expires: string | null }>;
+  listWidgets(memberId: string, opts: { limit: number }): Promise<ProjectWidgetSummary[]>;
+  statWidget(memberId: string, widgetId: string): Promise<ProjectWidgetSummary>;
+  planWidget(memberId: string, plan: { path: string; visibility?: ProjectFileVisibility }):
+      Promise<{ widgetId: string; visibility: ProjectFileVisibility }>;
+  commitWidget(memberId: string, widget: StagedWidget): Promise<ProjectWidgetSummary>;
+  planWidgetFile(memberId: string, widgetId: string, plan: { path: string; size: number }):
+      Promise<{ replacesContentKey?: string }>;
+  commitWidgetFile(memberId: string, write: StagedWidgetFile): Promise<ProjectWidgetFile>;
+  listWidgetFiles(memberId: string, widgetId: string): Promise<ProjectWidgetFile[]>;
+  readWidgetFile(memberId: string, widgetId: string, path: string):
+      Promise<ProjectWidgetFileContent>;
+  deleteWidgetFile(memberId: string, widgetId: string, path: string): Promise<void>;
+  moveWidget(memberId: string, widgetId: string, path: string): Promise<ProjectWidgetSummary>;
+  setWidgetVisibility(memberId: string, widgetId: string, visibility: ProjectFileVisibility):
+      Promise<ProjectWidgetSummary>;
+  deleteWidget(memberId: string, widgetId: string): Promise<{ deleted: boolean }>;
+  mintWidgetLink(memberId: string, widgetId: string):
+      Promise<{ url: string; expires: string | null }>;
   canObserve(memberId: string, setId: string): Promise<boolean>;
   isMember(memberId: string): Promise<boolean>;
 }
@@ -132,7 +160,19 @@ export type PendingAction =
   | {
       kind: "deleteEnvVar"; projectId: string; name: string;
       previous: { value: string; description: string };
-    };
+    }
+  | { kind: "createWidget"; projectId: string; widget: StagedWidget }
+  | {
+      kind: "writeWidgetFile"; projectId: string; write: StagedWidgetFile; created: boolean;
+      /** Whether this write is the widget's backend module rather than one of its assets. */
+      code: boolean;
+    }
+  | { kind: "moveWidget"; projectId: string; widgetId: string; path: string; previousPath: string }
+  | {
+      kind: "setWidgetVisibility"; projectId: string; widgetId: string;
+      visibility: ProjectFileVisibility; previous: ProjectFileVisibility;
+    }
+  | { kind: "deleteWidget"; projectId: string; widgetId: string };
 
 /**
  * The account's reach into projects, shared by the sessions that ask for writes and the code in
@@ -159,11 +199,23 @@ export interface ProjectContext {
   /** Stage file bytes, returning the key they were stored under. */
   stageBytes(projectId: string, fileId: string, bytes: Uint8Array): Promise<string>;
 
+  /** Stage the bytes of one file inside a widget. Same bucket, its own prefix. */
+  stageWidgetBytes(
+    projectId: string,
+    widgetId: string,
+    path: string,
+    bytes: Uint8Array,
+  ): Promise<string>;
+
   /** Drop bytes staged for a write that will not happen. */
   discardBytes(contentKey: string): Promise<void>;
 
+  /** Throw away everything a widget's backend stored. Used when the widget is deleted. */
+  clearWidgetStore(projectId: string, widgetId: string): Promise<void>;
+
   projectUrl(projectId: string): string;
   fileUrl(projectId: string, fileId: string): string;
+  widgetUrl(projectId: string, widgetId: string): string;
 }
 
 /** What a session needs from the Durable Object hosting it. */
@@ -198,6 +250,8 @@ export const ACTION_KINDS = {
   membership: { tag: "project.membership", label: "Change a project's membership" },
   identity: { tag: "project.display-name", label: "Change the name project members see" },
   destructive: { tag: "project.delete", label: "Delete a project file" },
+  widget: { tag: "project.widget", label: "Create or change one of my project widgets" },
+  widgetCode: { tag: "project.widget-code", label: "Change the code a project widget runs" },
 } as const;
 
 /**
@@ -206,11 +260,17 @@ export const ACTION_KINDS = {
  * Only the ones confined to the member's own work. Sharing a file, changing shared configuration,
  * touching membership and deleting anything all reach other people in ways a description read
  * afterwards cannot undo, so they stay in front of a human even when a rule would otherwise match.
+ *
+ * A widget's assets are on the list and a widget's backend is not. The asset write is the same kind
+ * of act as writing one's own file. The backend is code that will run with the project's shared
+ * configuration in its environment and answer whoever can open the widget, so it is the one thing
+ * here a person should have to look at.
  */
 export const AUTO_APPROVABLE_KINDS = [
   ACTION_KINDS.writeOwnFile,
   ACTION_KINDS.comment,
   ACTION_KINDS.identity,
+  ACTION_KINDS.widget,
 ];
 
 @validateRpc()
@@ -602,6 +662,300 @@ export class ProjectWorkspaceSession extends RpcTarget implements ProjectWorkspa
     return skills;
   }
 
+  // -------------------------------------------------------------------------
+  // Widgets
+  //
+  // Everything here goes through the same store, the same approval queue and the same observation
+  // sets as files do. The one place widgets differ is which action kind a write is filed under: an
+  // asset is the member's own work, and a backend is code somebody should look at.
+
+  async listWidgets(opts?: { limit?: number }): Promise<ProjectWidgetSummary[]> {
+    const widgets = await this.#store().listWidgets(this.#host.memberId, {
+      limit: parseLimit(opts?.limit, DEFAULT_LIST, MAX_LIST),
+    });
+    await this.#host.authorize(
+      [projectSet(this.#projectId), ...widgetSets(this.#projectId, widgets)],
+      {
+        title: `List widgets in ${await this.#name()}`,
+        description: describeWidgets(widgets),
+      });
+    return widgets;
+  }
+
+  async createWidget(opts: {
+    name: string;
+    path: string;
+    visibility?: ProjectFileVisibility;
+    description?: string;
+  }): Promise<ProjectWidgetSummary> {
+    if (typeof opts !== "object" || opts === null) {
+      throw new ProjectError("createWidget() takes an object describing the widget.");
+    }
+    const name = parseName(opts.name, "widget name");
+    const path = normalizePath(opts.path);
+    const description = parseDescription(opts.description);
+    const plan = await this.#store().planWidget(this.#host.memberId, {
+      path,
+      ...(opts.visibility ? { visibility: parseVisibility(opts.visibility) } : {}),
+    });
+    const widget: StagedWidget = {
+      widgetId: plan.widgetId,
+      name,
+      path,
+      description,
+      visibility: plan.visibility,
+    };
+    await this.#host.submit(
+      { kind: "createWidget", projectId: this.#projectId, widget },
+      {
+        title: `Add the widget ${name} to ${await this.#name()}`,
+        description:
+          `Create a widget named ${name} at ${path} in the project ${await this.#name()}, visible ` +
+          `to ${describeVisibility(plan.visibility)}. A widget is a small app: it will serve the ` +
+          `files written into it at its own address, and run a backend module there if one is ` +
+          `added. It has no files yet, so it does nothing until ${WIDGET_INDEX_PATH} is written.` +
+          (description ? `\n\nDescription: ${description}` : ""),
+        implementsRevert: true,
+        awaitDecision: true,
+        actionKind: ACTION_KINDS.widget,
+        autoApprovable: true,
+      });
+    return {
+      widgetId: plan.widgetId,
+      name,
+      path,
+      description,
+      visibility: plan.visibility,
+      ownerId: this.#host.memberId,
+      ownerName: await this.#host.getDisplayName(),
+      writable: true,
+      fileCount: 0,
+      size: 0,
+      hasBackend: false,
+      updated: new Date().toISOString(),
+      url: this.#host.widgetUrl(this.#projectId, plan.widgetId),
+    };
+  }
+
+  async listWidgetFiles(widgetId: string): Promise<ProjectWidgetFile[]> {
+    const widget = await this.#store().statWidget(this.#host.memberId, widgetId);
+    const files = await this.#store().listWidgetFiles(this.#host.memberId, widgetId);
+    await this.#host.authorize(this.#widgetSets(widget), {
+      title: `List the files of the widget ${widget.name}`,
+      description:
+        `Read the paths, types and sizes of the ${files.length} files the widget ${widget.name} ` +
+        `serves, in the project ${await this.#name()}.`,
+    });
+    return files;
+  }
+
+  async readWidgetFile(widgetId: string, path: string): Promise<ProjectWidgetFileContent> {
+    const wanted = normalizeWidgetPath(path);
+    const widget = await this.#store().statWidget(this.#host.memberId, widgetId);
+    const file = await this.#store().readWidgetFile(this.#host.memberId, widgetId, wanted);
+    await this.#host.authorize(this.#widgetSets(widget), {
+      title: `Read ${wanted} from the widget ${widget.name}`,
+      description:
+        `Read the full contents of ${wanted} (${file.mimeType}, ${file.size} bytes) from the ` +
+        `widget ${widget.name} in the project ${await this.#name()}. The widget belongs to ` +
+        `${widget.ownerName || widget.ownerId}.` +
+        (isWidgetBackendPath(wanted) ? " This is the widget's backend module." : ""),
+    });
+    return file;
+  }
+
+  async writeWidgetFile(
+    widgetId: string,
+    path: string,
+    content: string,
+    mimeType?: string,
+  ): Promise<ProjectWidgetFile> {
+    const wanted = normalizeWidgetPath(path);
+    if (isWidgetBackendPath(wanted)) {
+      throw new ProjectError(
+        `${WIDGET_BACKEND_PATH} is the widget's backend module, which runs as code. Write it with ` +
+        `setWidgetBackend() so that what is being agreed to says so.`);
+    }
+    return this.#writeWidgetFile(widgetId, wanted, content, mimeType);
+  }
+
+  async setWidgetBackend(widgetId: string, content: string): Promise<ProjectWidgetFile> {
+    if (typeof content !== "string") {
+      throw new ProjectError("A widget's backend must be the source of a JavaScript module.");
+    }
+    if (content.length > MAX_WIDGET_BACKEND_BYTES) {
+      throw new ProjectError(
+        `That module is ${content.length} characters; a widget's backend may be at most ` +
+        `${MAX_WIDGET_BACKEND_BYTES}.`);
+    }
+    return this.#writeWidgetFile(widgetId, WIDGET_BACKEND_PATH, content, "text/javascript");
+  }
+
+  async moveWidget(widgetId: string, path: string): Promise<ProjectWidgetSummary> {
+    const wanted = normalizePath(path);
+    const widget = await this.#store().statWidget(this.#host.memberId, widgetId);
+    if (!widget.writable) {
+      throw new ProjectError(
+        `The widget ${widget.path} belongs to another member and only its owner can move it.`, 403);
+    }
+    const visibility = visibilityAfterMove(widget.visibility, wanted);
+    const widening = visibility !== widget.visibility && visibility !== "private";
+    await this.#host.submit(
+      {
+        kind: "moveWidget",
+        projectId: this.#projectId,
+        widgetId,
+        path: wanted,
+        previousPath: widget.path,
+      },
+      {
+        title: `Move the widget ${widget.name} to ${wanted}`,
+        description:
+          `Move the widget ${widget.name} from ${widget.path} to ${wanted} in the project ` +
+          `${await this.#name()}.` +
+          (visibility === widget.visibility
+            ? ` It stays openable by ${describeVisibility(visibility)}.`
+            : ` Its new path makes it openable by ${describeVisibility(visibility)}, where it was ` +
+              `openable by ${describeVisibility(widget.visibility)}.`),
+        implementsRevert: true,
+        awaitDecision: true,
+        actionKind: widening ? ACTION_KINDS.share : ACTION_KINDS.widget,
+        autoApprovable: !widening,
+      });
+    return { ...widget, path: wanted, visibility };
+  }
+
+  async setWidgetVisibility(
+    widgetId: string,
+    visibility: ProjectFileVisibility,
+  ): Promise<ProjectWidgetSummary> {
+    const wanted = parseVisibility(visibility);
+    const widget = await this.#store().statWidget(this.#host.memberId, widgetId);
+    if (!widget.writable) {
+      throw new ProjectError(
+        `The widget ${widget.path} belongs to another member and only its owner can change who ` +
+        `can open it.`, 403);
+    }
+    await this.#host.submit(
+      {
+        kind: "setWidgetVisibility",
+        projectId: this.#projectId,
+        widgetId,
+        visibility: wanted,
+        previous: widget.visibility,
+      },
+      {
+        title: `Let ${describeVisibility(wanted)} open the widget ${widget.name}`,
+        description:
+          `Change who can open the widget ${widget.name} in the project ${await this.#name()}, ` +
+          `from ${describeVisibility(widget.visibility)} to ${describeVisibility(wanted)}.` +
+          (wanted === "public"
+            ? ` Anyone who can reach this deployment will be able to open it and call its ` +
+              `backend once they hold its link, whether or not they are a member of this project. ` +
+              `Their requests reach the backend as an anonymous caller.` +
+              (widget.hasBackend
+                ? ` This widget has a backend, and a backend can read the project's shared ` +
+                  `configuration, so whatever it chooses to answer with is published too.`
+                : "")
+            : ` Links already open in a browser stop working.`),
+        implementsRevert: true,
+        awaitDecision: true,
+        actionKind: ACTION_KINDS.share,
+      });
+    return { ...widget, visibility: wanted };
+  }
+
+  async getWidgetLink(widgetId: string): Promise<{ url: string; expires: string | null }> {
+    const link = await this.#store().mintWidgetLink(this.#host.memberId, widgetId);
+    const widget = await this.#store().statWidget(this.#host.memberId, widgetId);
+    await this.#host.authorize(this.#widgetSets(widget), {
+      title: `Get a link to the widget ${widget.name}`,
+      description: link.expires === null
+        ? `Get the permanent link to the public widget ${widget.name}.`
+        : `Get a link that opens the widget ${widget.name} until ${link.expires}, about ` +
+          `${Math.round(LINK_LIFETIME_MS / 60000)} minutes from now. It works only for people the ` +
+          `widget is already shared with, and stops working sooner if that changes.`,
+    });
+    return link;
+  }
+
+  async deleteWidget(widgetId: string): Promise<void> {
+    const widget = await this.#store().statWidget(this.#host.memberId, widgetId);
+    await this.#host.submit(
+      { kind: "deleteWidget", projectId: this.#projectId, widgetId },
+      {
+        title: `Delete the widget ${widget.name} from ${await this.#name()}`,
+        description:
+          `Permanently delete the widget ${widget.name} at ${widget.path}, its ` +
+          `${widget.fileCount} files (${widget.size} bytes) and everything its backend has ` +
+          `stored, from the project ${await this.#name()}. This cannot be undone.`,
+        implementsRevert: false,
+        awaitDecision: true,
+        actionKind: ACTION_KINDS.destructive,
+      });
+  }
+
+  /**
+   * The one write path for a widget's files, whether the file is an asset or the backend.
+   *
+   * Shared because the mechanics are identical -- plan, stage the bytes, submit -- and the whole
+   * difference is what the person deciding is told and which kind it is filed under.
+   */
+  async #writeWidgetFile(
+    widgetId: string,
+    path: string,
+    content: string,
+    mimeType?: string,
+  ): Promise<ProjectWidgetFile> {
+    const decoded = decodeContent(content, mimeType);
+    const type = decoded.mimeType ?? inferMimeType(path);
+    const widget = await this.#store().statWidget(this.#host.memberId, widgetId);
+    const plan = await this.#store().planWidgetFile(this.#host.memberId, widgetId, {
+      path,
+      size: decoded.bytes.byteLength,
+    });
+    const contentKey = await this.#host.stageWidgetBytes(
+      this.#projectId, widgetId, path, decoded.bytes);
+    const write: StagedWidgetFile = {
+      widgetId,
+      contentKey,
+      path,
+      mimeType: type,
+      size: decoded.bytes.byteLength,
+    };
+    const created = plan.replacesContentKey === undefined;
+    const code = isWidgetBackendPath(path);
+    await this.#host.submit(
+      { kind: "writeWidgetFile", projectId: this.#projectId, write, created, code },
+      {
+        title: code
+          ? `${created ? "Give" : "Replace"} the widget ${widget.name}${
+              created ? " a backend" : "'s backend"}`
+          : `${created ? "Add" : "Update"} ${path} in the widget ${widget.name}`,
+        description: code
+          ? `${created ? "Add" : "Replace"} the backend module of the widget ${widget.name} in ` +
+            `the project ${await this.#name()} (${write.size} bytes). This is code, and it will ` +
+            `run whenever anyone who can open this widget calls its api/ routes. It runs with no ` +
+            `access to the internet, and with the project's shared configuration values in its ` +
+            `environment together with a store of its own. The widget is openable by ` +
+            `${describeVisibility(widget.visibility)}.`
+          : `${created ? "Create" : "Replace the contents of"} ${path} (${type}, ${write.size} ` +
+            `bytes) in the widget ${widget.name} in the project ${await this.#name()}. The widget ` +
+            `is openable by ${describeVisibility(widget.visibility)}` +
+            `${path === WIDGET_INDEX_PATH ? ", and this is the file its address serves" : ""}.`,
+        implementsRevert: created,
+        awaitDecision: true,
+        actionKind: code ? ACTION_KINDS.widgetCode : ACTION_KINDS.widget,
+        autoApprovable: !code,
+      });
+    return { path, mimeType: type, size: write.size, updated: new Date().toISOString() };
+  }
+
+  /** The sets a look at one widget reveals. A public widget reveals nothing. */
+  #widgetSets(widget: ProjectWidgetSummary): string[] {
+    return widget.visibility === "public" ? [] : [widgetSet(this.#projectId, widget.widgetId)];
+  }
+
   async listEnvVars(): Promise<ProjectEnvVar[]> {
     const vars = await this.#store().listEnvVars(this.#host.memberId);
     await this.#host.authorize([projectSet(this.#projectId)], {
@@ -825,6 +1179,20 @@ function describeFiles(files: readonly ProjectFileSummary[], verb: string): stri
   const rest = files.length > lines.length ? `\n- ...and ${files.length - lines.length} more` : "";
   return `${verb} ${files.length} files, with their paths, owners and descriptions:\n` +
     `${lines.join("\n")}${rest}`;
+}
+
+function describeWidgets(widgets: readonly ProjectWidgetSummary[]): string {
+  if (widgets.length === 0) return "Listed no widgets.";
+  const lines = widgets.slice(0, 20).map((widget) =>
+    `- ${widget.name} at ${widget.path} (${widget.visibility}, ` +
+    `owner ${widget.ownerName || widget.ownerId}` +
+    `${widget.hasBackend ? ", has a backend" : ""})`);
+  const rest = widgets.length > lines.length
+    ? `\n- ...and ${widgets.length - lines.length} more`
+    : "";
+  return `Listed ${widgets.length} widgets, with their names, paths and owners:\n` +
+    `${lines.join("\n")}${rest}\n\nA widget is a small app living in the project. Its files are ` +
+    `not listed here; read them with listWidgetFiles().`;
 }
 
 function describeVisibility(visibility: ProjectFileVisibility): string {

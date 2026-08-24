@@ -111,9 +111,26 @@ class TestHost implements ProjectHost {
     return key;
   }
 
+  async stageWidgetBytes(
+    projectId: string,
+    widgetId: string,
+    path: string,
+    bytes: Uint8Array,
+  ): Promise<string> {
+    const key = `${projectId}/widgets/${widgetId}/${encodeURIComponent(path)}/${newId()}`;
+    await testEnv.PROJECT_FILES.put(key, bytes);
+    return key;
+  }
+
   async discardBytes(contentKey: string): Promise<void> {
     await testEnv.PROJECT_FILES.delete(contentKey);
   }
+
+  async clearWidgetStore(projectId: string, widgetId: string): Promise<void> {
+    this.clearedWidgetStores.push(`${projectId}/${widgetId}`);
+  }
+
+  readonly clearedWidgetStores: string[] = [];
 
   projectUrl(projectId: string): string {
     return `https://os.example.com/gatekeeper/project/p/${projectId}`;
@@ -121,6 +138,10 @@ class TestHost implements ProjectHost {
 
   fileUrl(projectId: string, fileId: string): string {
     return `https://os.example.com/gatekeeper/project/f/${projectId}/${fileId}`;
+  }
+
+  widgetUrl(projectId: string, widgetId: string): string {
+    return `https://os.example.com/gatekeeper/project/w/${projectId}/${widgetId}/`;
   }
 }
 
@@ -261,7 +282,11 @@ describe("what a human is asked to approve", () => {
     const offered = new Set(AUTO_APPROVABLE_KINDS.map((kind) => kind.tag));
     expect(offered).toEqual(new Set([
       ACTION_KINDS.writeOwnFile.tag, ACTION_KINDS.comment.tag, ACTION_KINDS.identity.tag,
+      ACTION_KINDS.widget.tag,
     ]));
+    // A widget's assets are on that list and its backend is deliberately not: the backend is code
+    // that runs with the project's shared configuration in its environment.
+    expect(offered.has(ACTION_KINDS.widgetCode.tag)).toBe(false);
     // Every tag is distinct, since a tag is what a saved rule matches on.
     const tags = Object.values(ACTION_KINDS).map((kind) => kind.tag);
     expect(new Set(tags).size).toBe(tags.length);

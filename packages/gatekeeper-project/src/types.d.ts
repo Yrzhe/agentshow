@@ -5,13 +5,13 @@
 // `types-code.ts` carries a copy of everything below as a string, because `getTypeScriptTypes()`
 // has to return it at runtime. `scripts/gatekeeper-types.test.ts` fails when the two drift.
 
-/** How widely a project file is visible. */
+/** How widely a project file or widget is visible. */
 export type ProjectFileVisibility =
   /** Only you can read it, even though it lives in the project. */
   | "private"
   /** Every member of the project can read it. */
   | "project"
-  /** Anyone who can reach this deployment and holds the file's link can read it. */
+  /** Anyone who can reach this deployment and holds the link can read it. */
   | "public";
 
 /** What a member may do in a project. Owners can also remove members and revoke invites. */
@@ -153,8 +153,55 @@ export interface ProjectFileWrite {
 }
 
 /**
+ * A widget: a small app published into a project.
+ *
+ * A widget is `index.html` plus whatever assets it needs, and optionally a `backend.js` that answers
+ * its `api/` requests. Opening its link runs it in the browser. Who may open it is the widget's
+ * visibility, exactly as it is for a file.
+ */
+export interface ProjectWidgetSummary {
+  widgetId: string;
+  name: string;
+  /** Slash-separated path within the project. A widget under `shared/` is visible to every member. */
+  path: string;
+  description: string;
+  visibility: ProjectFileVisibility;
+  ownerId: string;
+  ownerName: string;
+  /** Whether you may change this widget. Only its owner may. */
+  writable: boolean;
+  /** How many files the widget holds, its backend included. */
+  fileCount: number;
+  /** Total bytes of those files. They count against the project's quota like any other file. */
+  size: number;
+  /** Whether the widget has a `backend.js`, and so answers anything under `api/`. */
+  hasBackend: boolean;
+  updated: string;
+  /**
+   * Address of the widget. A public widget can be opened at this address directly; every other
+   * widget needs a link from `getWidgetLink()`.
+   */
+  url: string;
+}
+
+/** One file inside a widget. */
+export interface ProjectWidgetFile {
+  /** Path within the widget, such as `index.html` or `assets/app.js`. */
+  path: string;
+  mimeType: string;
+  size: number;
+  updated: string;
+}
+
+/** A widget's file together with its contents. */
+export interface ProjectWidgetFileContent extends ProjectWidgetFile {
+  /** The text of a text file, or a `data:` URI for a binary one. */
+  content: string;
+}
+
+/**
  * One project's shared workspace: its members, the files they share, the comments on those files,
- * the skills the project has agreed on, and its shared configuration.
+ * the skills the project has agreed on, its shared configuration, and its widgets.
  *
  * Files you write are yours. You can read anything shared with the project but you can only
  * overwrite your own files -- use `copyFile()` to start your own copy of someone else's.
@@ -241,6 +288,101 @@ export interface ProjectWorkspace {
 
   /** The project's skills: instruction documents members have agreed to share. */
   listSkills(): Promise<ProjectFileSummary[]>;
+
+  /**
+   * The widgets you can see: your own, plus everything shared with the project.
+   *
+   * A widget is a small app living in the project. It is not a skill and not a gadget: sharing a
+   * widget shares an app, not a chat.
+   */
+  listWidgets(opts?: { limit?: number }): Promise<ProjectWidgetSummary[]>;
+
+  /**
+   * Start a widget. It has no files yet, so write at least an `index.html` before sharing its link.
+   *
+   * The path decides who can see it, exactly as it does for a file: a widget under `shared/`
+   * defaults to project-wide, anywhere else to private.
+   */
+  createWidget(opts: {
+    name: string;
+    path: string;
+    visibility?: ProjectFileVisibility;
+    description?: string;
+  }): Promise<ProjectWidgetSummary>;
+
+  /** The files one of your widgets serves. */
+  listWidgetFiles(widgetId: string): Promise<ProjectWidgetFile[]>;
+
+  /** Read one file out of a widget. */
+  readWidgetFile(widgetId: string, path: string): Promise<ProjectWidgetFileContent>;
+
+  /**
+   * Write one file into one of your widgets. Only the widget's owner may.
+   *
+   * `index.html` is what the widget's address serves. Paths under `api/` belong to the backend and
+   * are refused here, and `backend.js` is written with `setWidgetBackend()` instead, because code
+   * and assets are not the same decision.
+   */
+  writeWidgetFile(
+    widgetId: string,
+    path: string,
+    content: string,
+    mimeType?: string,
+  ): Promise<ProjectWidgetFile>;
+
+  /**
+   * Give one of your widgets a backend, or replace the one it has.
+   *
+   * The module is an ordinary Worker module -- `export default { async fetch(request, env) { ... } }`
+   * -- and it answers everything the widget receives under `api/`, with the path it sees starting at
+   * `/api`. It runs in an isolate of its own, with no access to the internet and none to the project
+   * beyond what is in its `env`:
+   *
+   * - every one of the project's shared configuration values, by name, with its contents
+   * - `env.WIDGET`, which is `{ projectId, widgetId, principal }`, where `principal` is
+   *   `{ kind: "member", memberId, role }` for a project member and `{ kind: "public" }` for
+   *   somebody holding a public widget's link
+   * - `env.STORE`, a key-value store belonging to this widget alone, with `get(key)`,
+   *   `put(key, value)`, `delete(key)` and `list({ prefix, limit })`
+   *
+   * `WIDGET` and `STORE` are reserved: shared configuration of those names is not passed through.
+   *
+   * A backend can read shared configuration, so publishing a widget publishes whatever its backend
+   * chooses to reveal from it.
+   */
+  setWidgetBackend(widgetId: string, content: string): Promise<ProjectWidgetFile>;
+
+  /**
+   * Move or rename one of your widgets.
+   *
+   * Like a file, the path decides who can see it: moving a widget into `shared/` shares it with the
+   * project and moving it back out makes it private. A public widget stays public wherever it goes.
+   */
+  moveWidget(widgetId: string, path: string): Promise<ProjectWidgetSummary>;
+
+  /**
+   * Change who can open one of your widgets.
+   *
+   * This is the whole share control. `public` means anyone who can reach this deployment and holds
+   * the widget's link, whether or not they have joined the project; their requests reach the
+   * backend as `{ kind: "public" }`. Changing it back takes effect at once, including for browsers
+   * that already have the widget open.
+   */
+  setWidgetVisibility(
+    widgetId: string,
+    visibility: ProjectFileVisibility,
+  ): Promise<ProjectWidgetSummary>;
+
+  /**
+   * A link that opens a widget. A public widget gets a stable one; every other widget gets one that
+   * expires and only works for people the widget is shared with.
+   */
+  getWidgetLink(widgetId: string): Promise<{ url: string; expires: string | null }>;
+
+  /**
+   * Delete a widget, its files and its store. Its owner may; a project owner may too, to moderate.
+   */
+  deleteWidget(widgetId: string): Promise<void>;
 
   /** The names of the project's shared configuration values, without their contents. */
   listEnvVars(): Promise<ProjectEnvVar[]>;
