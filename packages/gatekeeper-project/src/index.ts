@@ -88,6 +88,11 @@ export default {
         // A signed link is a short-lived capability, so nothing on the way may keep what it fetched.
         "cache-control": found.visibility === "public" ? "public, max-age=60" : "private, no-store",
         "x-content-type-options": "nosniff",
+        // A member's file is served under the deployment's own origin, and displayed rather than
+        // downloaded, so an HTML or SVG one would otherwise run as this deployment: with its
+        // cookies, its Access session, and same-origin reach into everything else here. Nothing a
+        // project file legitimately does needs script, a network, or an ambient origin.
+        "content-security-policy": "default-src 'none'; sandbox",
       },
     });
   },
