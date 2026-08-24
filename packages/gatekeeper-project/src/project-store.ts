@@ -399,11 +399,6 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
     visibility?: ProjectFileVisibility;
   }): Promise<{ fileId: string; visibility: ProjectFileVisibility; replacesContentKey?: string }> {
     this.#requireMember(memberId);
-    const quota = this.#quota();
-    if (plan.size > quota.maxFileBytes) {
-      throw new ProjectError(
-        `That file is ${plan.size} bytes; this deployment allows at most ${quota.maxFileBytes}.`);
-    }
     const target = plan.fileId
       ? this.#row(plan.fileId) ?? (() => { throw notFound("That file"); })()
       : this.#rowByPath(plan.path);
@@ -418,17 +413,7 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
         throw new ProjectError(`${plan.path} is already taken.`, 409);
       }
     }
-    const totals = this.#totals();
-    const priorSize = target?.size ?? 0;
-    if (totals.bytes - priorSize + plan.size > quota.maxProjectBytes) {
-      throw new ProjectError(
-        `This project holds ${totals.bytes} of ${quota.maxProjectBytes} allowed bytes; ` +
-        `that file does not fit.`);
-    }
-    if (!target && totals.count >= quota.maxFileCount) {
-      throw new ProjectError(
-        `This project already holds its limit of ${quota.maxFileCount} files.`);
-    }
+    this.#enforceQuota(plan.size, target);
     return {
       fileId: target?.file_id ?? newId(),
       visibility: plan.visibility ?? target?.visibility as ProjectFileVisibility ??
@@ -448,6 +433,9 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
     if (occupant && occupant.file_id !== write.fileId) {
       throw new ProjectError(`${write.path} is already taken.`, 409);
     }
+    // Again, against what the project holds now. Two writes planned while there was room for either
+    // one of them would both have passed the check the agent saw.
+    this.#enforceQuota(write.size, existing);
     const now = Date.now();
     if (existing) {
       this.ctx.storage.sql.exec(
@@ -718,6 +706,32 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
       maxFileCount: configuredCount(
         this.env.PROJECT_MAX_FILE_COUNT, DEFAULT_QUOTA.maxFileCount),
     };
+  }
+
+  /**
+   * What this project may hold, checked against a write of `size` replacing `existing`.
+   *
+   * Run when a write is planned and again when it commits. Planning is what tells an agent its file
+   * is too big while it can still do something about it; committing is the check that holds, because
+   * approval takes as long as a person takes and the project may have filled up in between.
+   */
+  #enforceQuota(size: number, existing: FileRow | undefined): void {
+    const quota = this.#quota();
+    if (size > quota.maxFileBytes) {
+      throw new ProjectError(
+        `That file is ${size} bytes; this deployment allows at most ${quota.maxFileBytes}.`);
+    }
+    const totals = this.#totals();
+    // An overwrite pays only the difference: the bytes it replaces are released with it.
+    if (totals.bytes - (existing?.size ?? 0) + size > quota.maxProjectBytes) {
+      throw new ProjectError(
+        `This project holds ${totals.bytes} of ${quota.maxProjectBytes} allowed bytes; ` +
+        `that file does not fit.`);
+    }
+    if (!existing && totals.count >= quota.maxFileCount) {
+      throw new ProjectError(
+        `This project already holds its limit of ${quota.maxFileCount} files.`);
+    }
   }
 
   #totals(): { count: number; bytes: number } {

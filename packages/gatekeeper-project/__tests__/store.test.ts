@@ -82,6 +82,32 @@ async function write(
   return store.commitWrite(memberId, staged);
 }
 
+/**
+ * The commit half of `write()` on its own, for the tests that plan several writes before any of
+ * them lands -- which is the arrangement `commitWrite` has to survive.
+ */
+async function commit(
+  store: Store,
+  memberId: string,
+  path: string,
+  content: string,
+  fileId: string,
+) {
+  const bytes = new TextEncoder().encode(content);
+  const contentKey = newId();
+  await testEnv.PROJECT_FILES.put(contentKey, bytes);
+  return store.commitWrite(memberId, {
+    fileId,
+    contentKey,
+    path,
+    mimeType: "text/markdown",
+    size: bytes.byteLength,
+    visibility: "private",
+    description: "",
+    indexedText: content,
+  });
+}
+
 describe("membership", () => {
   it("makes the creator an owner and nobody else a member", async () => {
     const { store } = await newProject();
@@ -322,6 +348,43 @@ describe("quotas", () => {
     // Replacing one of the five is still allowed: the count does not change.
     await expect(rpc(store.planWrite(alice.memberId, { path: "f0.md", size: 1 })))
       .resolves.toBeTruthy();
+  });
+
+  // Planning is not a reservation, and approval takes as long as a person takes, so the limits have
+  // to hold at the moment a write lands as well as at the moment it is asked for.
+  it("holds the byte limit against writes planned while there was room for either", async () => {
+    const { store } = await newProject();
+    const body = "x".repeat(4000);
+    // Three plans against an empty project: each one is told, truthfully, that it fits.
+    const planned = [];
+    for (const path of ["one.md", "two.md", "three.md"]) {
+      planned.push(await store.planWrite(alice.memberId, { path, size: 4000 }));
+    }
+
+    await commit(store, alice.memberId, "one.md", body, planned[0].fileId);
+    await commit(store, alice.memberId, "two.md", body, planned[1].fileId);
+    await expect(commit(store, alice.memberId, "three.md", body, planned[2].fileId))
+      .rejects.toThrow(/does not fit/);
+    expect(await store.listFiles(alice.memberId, { limit: 10 })).toHaveLength(2);
+  });
+
+  it("holds the file-count limit the same way", async () => {
+    const { store } = await newProject();
+    for (let i = 0; i < 4; i++) await write(store, alice.memberId, `f${i}.md`, "x");
+    const fifth = await store.planWrite(alice.memberId, { path: "f4.md", size: 1 });
+    const sixth = await store.planWrite(alice.memberId, { path: "f5.md", size: 1 });
+
+    await commit(store, alice.memberId, "f4.md", "x", fifth.fileId);
+    await expect(commit(store, alice.memberId, "f5.md", "x", sixth.fileId))
+      .rejects.toThrow(/limit of 5 files/);
+    expect(await store.listFiles(alice.memberId, { limit: 10 })).toHaveLength(5);
+  });
+
+  it("weighs the bytes it is handed, not the ones a plan promised", async () => {
+    const { store } = await newProject();
+    await expect(commit(store, alice.memberId, "big.bin", "x".repeat(5000), newId()))
+      .rejects.toThrow(/at most 4096/);
+    expect(await store.listFiles(alice.memberId, { limit: 10 })).toEqual([]);
   });
 });
 
