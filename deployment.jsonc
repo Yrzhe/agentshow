@@ -32,8 +32,8 @@
     // the Context Gatekeeper
     "scheduler": { "name": "<SCHEDULER_WORKER_NAME>" },
 
-    // The Project Gatekeeper: shared files, comments, skills and settings for a team whose
-    // members each keep their own chats and their own agent.
+    // The Project Gatekeeper: shared files, comments, skills, settings and widgets for a team
+    // whose members each keep their own chats and their own agent.
     // Reference: docs/collaboration.md
     "project": { "name": "<PROJECT_WORKER_NAME>" },
 
@@ -100,11 +100,12 @@
     // rather than failing visibly, so set it explicitly if the public origin may move.
     "sharingDomain": null,
 
-    // File bytes. null: Wrangler provisions and remembers an R2 bucket on first deploy.
-    // string: bind an existing bucket by name.
+    // File bytes, and the bytes of the widgets a project holds. null: Wrangler provisions and
+    // remembers an R2 bucket on first deploy. string: bind an existing bucket by name.
     "filesBucket": null,
 
-    // What one project may hold. Omit a field, or set it to null, to keep the Worker's default.
+    // What one project may hold, counting its files and its widgets' files together: one allowance,
+    // not one each. Omit a field, or set it to null, to keep the Worker's default.
     // These are the paid dimension: the bytes are billed to the bucket above.
     "limits": {
       "maxFileBytes": 10485760,

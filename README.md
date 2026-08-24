@@ -39,7 +39,7 @@ This repository adds deployment controls around a pinned [Cloudflare OS](https:/
 | Routing | A production [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) or a `workers.dev` evaluation route |
 | Data | Existing KV/R2 resources or [automatic provisioning](https://developers.cloudflare.com/workers/wrangler/configuration/#automatic-provisioning) |
 | Integrations | Wrapper-owned Gatekeepers and service bindings without patching upstream |
-| Collaboration | [Projects](docs/collaboration.md): shared files, comments, skills and settings, while every member keeps their own chats and their own agent |
+| Collaboration | [Projects](docs/collaboration.md): shared files, comments, skills, settings and widgets, while every member keeps their own chats and their own agent |
 | AI | A [Workers AI](https://developers.cloudflare.com/workers-ai/) model catalog through [AI Gateway](https://developers.cloudflare.com/ai-gateway/) out of the box, with no API token; which providers and which gateway |
 | Operations | [Structured logs, traces, explicit error reports](docs/observability.md), validation, deployment order, and upgrades |
 
@@ -109,6 +109,7 @@ Backend error reporting is enabled without a vendor account. Explicit upstream i
 - Open the Error Reporter Worker's [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/) and verify its structured `error_report` query surface.
 - Ask an agent to schedule something a few minutes out, and confirm it runs — that exercises the Scheduler Gatekeeper end to end.
 - From two different Access identities, start a project, invite the other, and share a file into it: each agent should see the shared file and neither should see the other's chats. That exercises the [Project Gatekeeper](docs/collaboration.md) end to end.
+- In that same project, ask one agent to create a widget with an `index.html` and a backend that reads a shared configuration value, then open the link it gives you: the page should run and its `api/` route should answer. The other member's link should work too, and a link to a `private` widget should not. That exercises [widgets](docs/collaboration.md#widgetproject-里的-mini-app), which need [Dynamic Worker Loaders](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) on the account.
 - Review logs for the router, Workshop, Context, Scheduler, Projects, custom Gatekeeper, and Error Reporter Workers.
 
 ## Customization
@@ -119,7 +120,7 @@ Backend error reporting is enabled without a vendor account. Explicit upstream i
 | Sign-in, routes, AI, storage, observability, Worker identities | [`deployment.jsonc`](deployment.jsonc) | Yes |
 | Logs, traces, error destinations, browser reporting | [Observability guide](docs/observability.md) | Sometimes |
 | Organization APIs and capabilities | [`packages/custom-gatekeeper`](packages/custom-gatekeeper/README.md) | Yes |
-| Project collaboration: sharing rules, comments, quotas | [`packages/gatekeeper-project`](packages/gatekeeper-project/README.md) | Yes |
+| Project collaboration: sharing rules, comments, widgets, quotas | [`packages/gatekeeper-project`](packages/gatekeeper-project/README.md) | Yes |
 | Product behavior unavailable through Worker boundaries | Pinned upstream fork/commit | Yes |
 
 The complete control reference and recipes live in [Customization](docs/customization.md). The upstream [`write-gatekeeper` skill](https://github.com/cloudflare/cloudflare-os/blob/main/.agents/skills/write-gatekeeper/SKILL.md) covers richer integrations.

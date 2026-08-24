@@ -32,7 +32,7 @@ The custom logo appears in the app chrome, sign-in screens, and browser tab on e
 | `access` | Cloudflare Access trust and administrator list | Access team issuer, application audience, and verified email list |
 | `aiGateway` | Deployment-managed model catalog | Enabled by default over the Workers AI binding; which providers to advertise, and which gateway |
 | `context` | Context sharing boundary, snapshot KV, and optional Artifacts repositories | `null` to scope data to the public origin, or a pinned stable label; automatic or existing KV; Git-backed collections disabled or enabled |
-| `project` | Project sharing boundary, the R2 bucket holding file bytes, and per-project quotas | `null` to scope projects to the public origin, or a pinned stable label; automatic or existing bucket; see the [collaboration design](collaboration.md) |
+| `project` | Project sharing boundary, the R2 bucket holding file and widget bytes, and per-project quotas | `null` to scope projects to the public origin, or a pinned stable label; automatic or existing bucket; see the [collaboration design](collaboration.md) |
 | `customGatekeeper` | Example integration identity and guidance | Organization-specific display text |
 | `errorReporting` | Private explicit-issue destination | Console Reporter enabled state, environment, and release metadata |
 | `resources` | Blueprint/avatar KV and blueprint-content R2 | `null` to provision or explicit IDs/names to reuse |
@@ -50,7 +50,7 @@ The deployment is seven Workers. Keep their names unique: service bindings use t
 | `workshop` | The Cloudflare OS backend, holding all user data in Durable Objects. |
 | `context` | The Context Gatekeeper. |
 | `scheduler` | The Scheduler Gatekeeper, which gives agents scheduled and recurring work. |
-| `project` | The Project Gatekeeper: shared files, comments, skills and settings for a team whose members each keep their own chats. See the [collaboration design](collaboration.md). |
+| `project` | The Project Gatekeeper: shared files, comments, skills, settings and widgets for a team whose members each keep their own chats. Widgets run their backends through a Worker Loader, so this Worker needs [Dynamic Worker Loaders](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) on the account. See the [collaboration design](collaboration.md). |
 | `customGatekeeper` | This repository's example integration. |
 | `errorReporter` | The private explicit-issue destination. |
 

@@ -4,8 +4,8 @@ Shared projects for people whose agents are their own.
 
 Adding someone to a gadget upstream means talking to the same agent in the same chat. This Worker is
 the other arrangement: everyone keeps their own chats and their own agent, and a **project** is the
-only thing they share — its files, the comments on those files, the skills they have agreed on, and
-its shared configuration.
+only thing they share — its files, the comments on those files, the skills they have agreed on, its
+shared configuration, and its **widgets**.
 
 Nothing here is shared between two people's agents. Each member's agent talks to its own gatekeeper
 facet holding its own account id; what those facets have in common is the project Durable Objects
@@ -13,6 +13,32 @@ they reach, and every one of those answers per member.
 
 [docs/collaboration.md](../../docs/collaboration.md) is the design: why this is a Gatekeeper, what
 the visibility rules mean, and what is deliberately left out.
+
+## Widgets
+
+A widget is a small app published into a project: `index.html` plus its assets, and optionally a
+`backend.js` that answers its `api/` routes. Opening its link runs it. It is not an official Gadget —
+sharing a gadget shares a chat, which is the arrangement this whole Worker exists to avoid — and it
+is not a skill, though it may use the project's skills and shared configuration.
+
+A widget reuses the file rules rather than bringing its own: the same three visibilities, the same
+path-is-intent default under `shared/`, the same owner-only writes, the same approval queue.
+`setWidgetVisibility()` is the whole share control.
+
+| | Files | Widgets |
+| --- | --- | --- |
+| Address | `/f/<projectId>/<fileId>` | `/w/<projectId>/<widgetId>/…` and `…/api/…` |
+| Policy | `default-src 'none'; sandbox` | script and its own `api/` allowed; see `widgetContentSecurityPolicy` |
+| Capability | signed token in the URL | signed token, then a path-scoped `HttpOnly` cookie |
+| Re-checked | at link time | on **every** frontend and backend request |
+
+A widget's backend runs as a real Worker in its own isolate through the `WIDGET_LOADER` Worker Loader
+binding — nothing is evaluated in this Worker's scope. Its `env` holds the project's shared
+configuration values, a `WIDGET` binding naming the caller's principal, and a store belonging to that
+one widget. It has no network: `globalOutbound` is `null`.
+
+Writing a widget's assets is auto-approvable. Writing its backend is not, and is the only write here
+that never can be: it is code that runs with the project's shared configuration in its environment.
 
 ## The agent's view
 
@@ -30,20 +56,30 @@ node scripts/gatekeeper-types.ts --write
 | --- | --- |
 | `types.d.ts` | The agent-facing API. Edit this, then regenerate the mirror |
 | `model.ts` | Every rule that is a decision rather than a database call, free of DO and RPC types |
-| `project-store.ts` | `ProjectDurableObject`: one project's members, files, comments and settings |
+| `project-store.ts` | `ProjectDurableObject`: one project's members, files, comments, settings and widgets |
 | `member-index.ts` | `MemberProjectsDurableObject`: which projects one account belongs to |
+| `widget-store.ts` | `WidgetStoreDurableObject`: the only thing a widget's backend may keep anything in |
+| `widget-runtime.ts` | Loading a widget's backend into an isolate, and what its request and `env` hold |
 | `sessions.ts` | The RPC sessions an agent calls, and the actions they submit for approval |
 | `actions.ts` | Applying, rejecting and reverting an approved action |
 | `observers.ts` | Observer verification: whether a collaborator may still see what was read |
 | `project-gatekeeper.ts` | Vendor, account, verifier, and the facet the Workshop installs |
-| `links.ts` | Project and file addresses, and parsing them back |
-| `index.ts` | The Worker entrypoint: `/p/<projectId>` and `/f/<projectId>/<fileId>` |
+| `links.ts` | Project, file and widget addresses, and parsing them back |
+| `index.ts` | The Worker entrypoint: `/p/…`, `/f/…` and `/w/…` |
 
 ## Storage
 
 File metadata lives in each project's Durable Object; the bytes live in R2 under `PROJECT_FILES`,
 because a Durable Object's storage cannot hold a document. The Durable Object holds the only index of
 those objects, so an R2 object nobody has a metadata row for is unreachable.
+
+A widget's metadata lives in the same Durable Object, in `widgets` and `widget_files`, and its bytes
+in the same bucket under a `widgets/` prefix. They count against the same project quota: one
+allowance, not one each. What a widget's backend stores is separate, one `WidgetStoreDurableObject`
+per widget, because that stub is passed into member-written code and should reach nothing else.
+
+The schema is additive — every table is `CREATE TABLE IF NOT EXISTS`, and the widget classes arrive
+in a migration tag of their own — so existing projects and files keep working untouched.
 
 ## Development
 
