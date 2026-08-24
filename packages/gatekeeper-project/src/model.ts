@@ -230,7 +230,15 @@ export function decodeContent(
   const body = content.slice(match[0].length);
   const declared = match[1] || undefined;
   if (!match[2]) {
-    return { bytes: new TextEncoder().encode(decodeURIComponent(body)), mimeType: mimeType ?? declared };
+    let text: string;
+    try {
+      text = decodeURIComponent(body);
+    } catch {
+      // A refusal, like the base64 branch below: the agent wrote the URI, so it is the one that can
+      // fix it, and a URIError escaping here would reach it as a 500 it can make nothing of.
+      throw new ProjectError("The data: URI is not valid percent-encoded text.");
+    }
+    return { bytes: new TextEncoder().encode(text), mimeType: mimeType ?? declared };
   }
   let binary: string;
   try {

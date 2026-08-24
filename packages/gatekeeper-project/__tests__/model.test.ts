@@ -145,6 +145,19 @@ describe("content", () => {
     expect(() => decodeContent("data:image/png;base64,!!!", undefined)).toThrow(/base64/);
   });
 
+  it("refuses a data URI whose percent-encoding is broken, as a refusal and not a crash", () => {
+    // A URIError here would reach the agent as a 500 it can make nothing of, when the thing at
+    // fault is the string it just wrote.
+    for (const broken of ["data:text/plain,%zz", "data:text/plain,%", "data:text/plain,100%"]) {
+      expect(() => decodeContent(broken, undefined), broken)
+        .toThrow(/not valid percent-encoded text/);
+      expect(() => decodeContent(broken, undefined), broken).toThrow(ProjectError);
+    }
+    // Valid escapes still decode, including a percent that is spelled properly.
+    expect(decodeContent("data:text/plain,100%25", undefined).bytes)
+      .toEqual(new TextEncoder().encode("100%"));
+  });
+
   it("indexes text only, and only up to the cap", () => {
     expect(indexedText(new TextEncoder().encode("hello"), "text/plain")).toBe("hello");
     expect(indexedText(new Uint8Array([1, 2, 3]), "application/pdf")).toBe("");
