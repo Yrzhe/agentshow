@@ -161,9 +161,24 @@ async function handleEmailSubmit(
       ttlMinutes: Math.round(config.codeTtlMs / 60_000),
     });
     const send = resendSender({ apiKey: config.mailApiKey, from: config.mailFrom });
-    // Awaited rather than deferred: a delivery failure has to reach the page, because a user
-    // waiting for mail that will never arrive has no other way to find out.
-    await send(email, message);
+    try {
+      // Awaited rather than deferred: a delivery failure has to reach the page, because somebody
+      // waiting for mail that will never arrive has no other way to find out.
+      await send(email, message);
+    } catch (error) {
+      // Said plainly instead of as a 500. A provider outage is not the visitor's fault and not
+      // something they can debug, but "try again" is genuinely the right advice, and the
+      // alternative is a blank error page in front of a login they cannot complete.
+      console.error(`email-code-idp delivery failed: ${(error as Error).message}`);
+      return codePage({
+        brand: config.brand,
+        session,
+        email,
+        digits: CODE_DIGITS,
+        error: "We could not send a code just now. Send a new one in a moment.",
+        canResend: sends + 1 < config.maxSendsPerSession,
+      });
+    }
   }
 
   return codePage({

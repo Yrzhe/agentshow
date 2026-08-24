@@ -316,6 +316,19 @@ describe("who may be sent a code", () => {
     expect(await page("stranger@elsewhere.test")).toBe(await page("ada@example.com"));
   });
 
+  it("says so when delivery fails rather than serving a blank error", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("nope", {
+      status: 502,
+    }));
+
+    const response = await submitEmail(await startLogin(), "ada@example.com");
+
+    // A provider outage is not the visitor's fault and not something they can debug, but it must
+    // not surface as a 500 in front of a login they cannot complete.
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("could not send a code");
+  });
+
   it("rejects an address that is not an address at all", async () => {
     const response = await submitEmail(await startLogin(), "not-an-address");
 
