@@ -120,7 +120,7 @@ export async function revertAction(
         memberId, action.fileId, action.previous);
       return;
     case "addComment":
-      await context.store(action.projectId).deleteComment(action.commentId);
+      await context.store(action.projectId).deleteComment(memberId, action.commentId);
       return;
     case "resolveComment":
       await context.store(action.projectId).resolveComment(memberId, action.commentId, false);

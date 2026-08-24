@@ -589,9 +589,21 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
       "UPDATE comments SET resolved = ? WHERE comment_id = ?", resolved ? 1 : 0, commentId);
   }
 
-  async deleteComment(commentId: string): Promise<void> {
+  /**
+   * Remove a comment, which only its author may do.
+   *
+   * There is no API for this: it exists so that undoing an approved `addComment` can take the
+   * comment back. Undoing your own comment is the only case, so authorship is the whole rule -- a
+   * project owner moderates by resolving a thread or deleting the file, not by editing the record of
+   * what someone said.
+   */
+  async deleteComment(memberId: string, commentId: string): Promise<void> {
+    this.#requireMember(memberId);
     const comment = this.#comment(commentId);
     if (!comment) return;
+    if (comment.author_id !== memberId) {
+      throw new ProjectError("Only a comment's author can delete it.", 403);
+    }
     this.ctx.storage.sql.exec("DELETE FROM comments WHERE comment_id = ?", commentId);
     this.ctx.storage.sql.exec(
       "UPDATE files SET comment_count = MAX(comment_count - 1, 0) WHERE file_id = ?",

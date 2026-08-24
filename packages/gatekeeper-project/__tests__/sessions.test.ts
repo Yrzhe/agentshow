@@ -427,10 +427,12 @@ describe("writing to someone else's work", () => {
   let bob: TestHost;
   let bobsWorkspace: ProjectWorkspace;
   let fileId: string;
+  let projectId: string;
 
   beforeEach(async () => {
     const owned = await ownedProject();
     alice = owned.alice;
+    projectId = owned.projectId;
     const invite = await owned.workspace.createInvite();
     await alice.approve();
     bob = new TestHost("bob", "Bob");
@@ -483,6 +485,21 @@ describe("writing to someone else's work", () => {
     const comments = await bobsWorkspace.listComments(fileId);
     expect(comments).toHaveLength(1);
     expect(comments[0].anchor).toEqual({ kind: "text", start: 0, end: 6, quote: "Alice'" });
+  });
+
+  it("keeps a comment that only its author can take back", async () => {
+    const comment = await bobsWorkspace.addComment(fileId, "Second paragraph is wrong.");
+    await bob.approve();
+
+    // Alice owns the file and the project, and still cannot remove what Bob said. There is no API
+    // for it either -- this is the path an undone approval takes.
+    await expect((async () => alice.store(projectId).deleteComment("alice", comment.commentId))())
+      .rejects.toThrow(/author/);
+    expect(await bobsWorkspace.listComments(fileId)).toHaveLength(1);
+
+    // Undoing Bob's own approved comment still works, which is what that path is for.
+    await bob.revert();
+    expect(await bobsWorkspace.listComments(fileId)).toEqual([]);
   });
 });
 

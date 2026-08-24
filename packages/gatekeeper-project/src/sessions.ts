@@ -91,7 +91,7 @@ export interface ProjectStore {
     replyTo?: string;
   }): Promise<ProjectComment>;
   resolveComment(memberId: string, commentId: string, resolved?: boolean): Promise<void>;
-  deleteComment(commentId: string): Promise<void>;
+  deleteComment(memberId: string, commentId: string): Promise<void>;
   listEnvVars(memberId: string): Promise<ProjectEnvVar[]>;
   getEnvVar(memberId: string, name: string): Promise<string>;
   setEnvVar(memberId: string, name: string, value: string, description: string): Promise<void>;

@@ -489,6 +489,26 @@ describe("comments", () => {
     expect(resolved.every((comment) => comment.resolved)).toBe(true);
   });
 
+  it("lets only a comment's author take it back", async () => {
+    const { store } = await projectWithBob();
+    const file = await write(store, alice.memberId, "shared/notes.md", "notes");
+    const byBob = await store.addComment(bob.memberId, {
+      commentId: newId(), fileId: file.fileId, body: "needs work", anchor: { kind: "file" },
+    });
+
+    // Alice owns the file and the project. Moderating means resolving the thread or deleting the
+    // file, not editing the record of what Bob said.
+    await expect(rpc(store.deleteComment(alice.memberId, byBob.commentId)))
+      .rejects.toThrow(/author/);
+    await expect(rpc(store.deleteComment(outsider, byBob.commentId))).rejects.toThrow();
+    expect(await store.listComments(alice.memberId, file.fileId)).toHaveLength(1);
+
+    await store.deleteComment(bob.memberId, byBob.commentId);
+    expect(await store.listComments(alice.memberId, file.fileId)).toEqual([]);
+    await expect(rpc(store.statFile(alice.memberId, file.fileId)))
+      .resolves.toMatchObject({ commentCount: 0 });
+  });
+
   it("drops a file's comments with the file", async () => {
     const { store } = await newProject();
     const file = await write(store, alice.memberId, "shared/notes.md", "notes");
