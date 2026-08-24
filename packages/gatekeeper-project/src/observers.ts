@@ -55,6 +55,10 @@ export class ProjectObserverTracker {
     for (;;) {
       const sets = this.#trackedSets().filter((setId) => !checked.has(setId));
       if (sets.length === 0) {
+        // Kept, not just consulted: every later observation has to ask this account again, about
+        // sets it has not been asked about yet. Keeping it is allowed because what arrives here is a
+        // persistent stub, which the runtime can rebuild -- and the overseer re-runs `addObserver`
+        // on every open, so one that did not survive is replaced rather than trusted.
         this.kv.put(this.#observerKey(id), verifier);
         return;
       }
