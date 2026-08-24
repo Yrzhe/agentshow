@@ -32,6 +32,7 @@ The custom logo appears in the app chrome, sign-in screens, and browser tab on e
 | `access` | Cloudflare Access trust and administrator list | Access team issuer, application audience, and verified email list |
 | `aiGateway` | Deployment-managed model catalog | Enabled by default over the Workers AI binding; which providers to advertise, and which gateway |
 | `context` | Context sharing boundary, snapshot KV, and optional Artifacts repositories | `null` to scope data to the public origin, or a pinned stable label; automatic or existing KV; Git-backed collections disabled or enabled |
+| `project` | Project sharing boundary, the R2 bucket holding file bytes, and per-project quotas | `null` to scope projects to the public origin, or a pinned stable label; automatic or existing bucket; see the [collaboration design](collaboration.md) |
 | `customGatekeeper` | Example integration identity and guidance | Organization-specific display text |
 | `errorReporting` | Private explicit-issue destination | Console Reporter enabled state, environment, and release metadata |
 | `resources` | Blueprint/avatar KV and blueprint-content R2 | `null` to provision or explicit IDs/names to reuse |
@@ -41,7 +42,7 @@ Secrets are never valid values in this file. Install them interactively with Wra
 
 ### Workers and routing
 
-The deployment is six Workers. Keep their names unique: service bindings use these names, so update and deploy them together.
+The deployment is seven Workers. Keep their names unique: service bindings use these names, so update and deploy them together.
 
 | Worker | Role |
 | --- | --- |
@@ -49,12 +50,13 @@ The deployment is six Workers. Keep their names unique: service bindings use the
 | `workshop` | The Cloudflare OS backend, holding all user data in Durable Objects. |
 | `context` | The Context Gatekeeper. |
 | `scheduler` | The Scheduler Gatekeeper, which gives agents scheduled and recurring work. |
+| `project` | The Project Gatekeeper: shared files, comments, skills and settings for a team whose members each keep their own chats. See the [collaboration design](collaboration.md). |
 | `customGatekeeper` | This repository's example integration. |
 | `errorReporter` | The private explicit-issue destination. |
 
-Context and Scheduler are *ambient*: upstream's release marks both `PREINSTALL`, so the hosted flow installs them on every instance and this starter deploys them for the same reason. Neither takes configuration beyond its name — the Scheduler takes none at all.
+Context and Scheduler are *ambient*: upstream's release marks both `PREINSTALL`, so the hosted flow installs them on every instance and this starter deploys them for the same reason. Neither takes configuration beyond its name — the Scheduler takes none at all. The Project Gatekeeper is ambient in the same way, but it is ours rather than upstream's, and it does take configuration: a sharing boundary, a bucket for file bytes, and per-project quotas.
 
-Only the router takes a route; the other five are reachable only over service bindings, and the deploy turns off `workers.dev` and [Preview URLs](https://developers.cloudflare.com/workers/configuration/previews/) on all six. That keeps the router the single Access-protected way in.
+Only the router takes a route; the other six are reachable only over service bindings, and the deploy turns off `workers.dev` and [Preview URLs](https://developers.cloudflare.com/workers/configuration/previews/) on all seven. That keeps the router the single Access-protected way in.
 
 For production, set a [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) on it:
 
@@ -69,7 +71,7 @@ The hostname must belong to an active Cloudflare zone and cannot conflict with a
 "workers": { "router": { "name": "acme-os", "route": { "workersDev": true } } }
 ```
 
-`publicBaseUrl` is required there, because nothing in `deployment.jsonc` knows your account's `workers.dev` subdomain. If using workers.dev that value must be `https://<router-name>.<subdomain>.workers.dev`. Two things read the origin — `PUBLIC_BASE_URL`, which upstream builds absolute links and OAuth redirect URIs from, and the Context sharing boundary under [Storage](#storage) — so a typo here would deploy successfully and then hide existing Context data and break every redirect.
+`publicBaseUrl` is required there, because nothing in `deployment.jsonc` knows your account's `workers.dev` subdomain. If using workers.dev that value must be `https://<router-name>.<subdomain>.workers.dev`. Three things read the origin — `PUBLIC_BASE_URL`, which upstream builds absolute links and OAuth redirect URIs from and this starter builds project and file links from, and the Context and project sharing boundaries under [Storage](#storage) — so a typo here would deploy successfully and then hide existing Context collections and every existing project, and break every redirect.
 
 On a custom domain the hostname is yours and has nothing to do with any Worker name, so `pnpm check` compares `publicBaseUrl` against `customDomain` instead: leave it `null` and the deploy derives the origin from the domain, or set it to exactly `https://<customDomain>`.
 
@@ -108,6 +110,10 @@ Wrangler supports [automatic provisioning](https://developers.cloudflare.com/wor
   "sharingDomain": null,
   "kvNamespaceId": null
 },
+"project": {
+  "sharingDomain": null,
+  "filesBucket": null
+},
 "resources": {
   "blueprintsKvNamespaceId": null,
   "avatarsKvNamespaceId": null,
@@ -117,11 +123,14 @@ Wrangler supports [automatic provisioning](https://developers.cloudflare.com/wor
 
 Wrangler creates resources with the Worker name as a prefix and reconnects them on future deploys. To adopt existing data, replace the relevant `null` with a [KV namespace ID](https://developers.cloudflare.com/kv/reference/kv-commands/#kv-namespace) or [R2 bucket name](https://developers.cloudflare.com/r2/reference/wrangler-commands/#r2-bucket).
 
-`context.sharingDomain` is not storage but a data-isolation boundary: Context collections are visible only within it. `null` scopes them to the deployment's public origin, which is what the hosted deploy does. Changing the boundary hides existing collections even with the right KV bound, so pin it to a literal string when a hostname change must not move it:
+`context.sharingDomain` and `project.sharingDomain` are not storage but data-isolation boundaries: Context collections are visible only within the first, and projects only within the second. `null` scopes each to the deployment's public origin, which is what the hosted deploy does. Changing a boundary hides what was stored under the old one even with the right KV or bucket bound — every existing collection, and every existing project along with its members, comments and files — so pin both to a literal string when a hostname change must not move them:
 
 ```jsonc
-"context": { "sharingDomain": "https://os.example.com" }
+"context": { "sharingDomain": "https://os.example.com" },
+"project": { "sharingDomain": "https://os.example.com" }
 ```
+
+The hidden data is still there, so setting the boundary back reveals it again. Nothing warns you in between: a project whose boundary moved looks to its members like a project they were never in.
 
 ### Context Artifacts
 

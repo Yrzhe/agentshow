@@ -18,6 +18,7 @@ const validConfig: DeploymentConfig = {
     workshop: { name: "acme-cloudflare-os-backend" },
     context: { name: "acme-cloudflare-os-context" },
     scheduler: { name: "acme-cloudflare-os-scheduler" },
+    project: { name: "acme-cloudflare-os-projects" },
     customGatekeeper: { name: "acme-cloudflare-os-custom" },
     errorReporter: { name: "acme-cloudflare-os-errors" },
   },
@@ -36,6 +37,11 @@ const validConfig: DeploymentConfig = {
     sharingDomain: null,
     kvNamespaceId: "context-kv-id",
     artifacts: { enabled: true, namespace: "acme-context-collections" },
+  },
+  project: {
+    sharingDomain: null,
+    filesBucket: "cloudflare-os-project-files",
+    limits: { maxFileBytes: 10485760, maxTotalBytes: 1073741824, maxFileCount: 2000 },
   },
   customGatekeeper: { name: "Acme", message: "Use the company handbook." },
   errorReporting: { enabled: true, environment: "production", release: "abc123" },
@@ -73,6 +79,7 @@ async function baseConfigs(): Promise<BaseConfigs> {
     workshop: await baseConfig("../cloudflare-os/packages/workshop-backend/wrangler.jsonc"),
     context: await baseConfig("../cloudflare-os/packages/gatekeeper-context/wrangler.jsonc"),
     scheduler: await baseConfig("../cloudflare-os/packages/gatekeeper-scheduler/wrangler.jsonc"),
+    project: await baseConfig("../packages/gatekeeper-project/wrangler.jsonc"),
     customGatekeeper: await baseConfig("../packages/custom-gatekeeper/wrangler.jsonc"),
     errorReporter: await baseConfig("../packages/error-reporter/wrangler.jsonc"),
   };
@@ -221,6 +228,12 @@ test("generates Access-mode Workshop, Context, and custom Gatekeeper configs", a
       entrypoint: "GatekeeperVendor",
     },
     {
+      binding: "GATEKEEPER_PROJECT",
+      service: "acme-cloudflare-os-projects",
+      entrypoint: "GatekeeperVendor",
+      props: { sharingDomain: "https://os.example.com" },
+    },
+    {
       binding: "GATEKEEPER_CUSTOM",
       service: "acme-cloudflare-os-custom",
       entrypoint: "GatekeeperVendor",
@@ -267,6 +280,7 @@ test("gives the router the public route, the frontend, and every service binding
     { binding: "WORKSHOP_BACKEND", service: "acme-cloudflare-os-backend" },
     { binding: "GATEKEEPER_CONTEXT", service: "acme-cloudflare-os-context" },
     { binding: "GATEKEEPER_SCHEDULER", service: "acme-cloudflare-os-scheduler" },
+    { binding: "GATEKEEPER_PROJECT", service: "acme-cloudflare-os-projects" },
     { binding: "GATEKEEPER_CUSTOM", service: "acme-cloudflare-os-custom" },
   ]);
   // Inherited untouched: the base config already carries the ASSETS binding, the SPA fallback, and
@@ -315,6 +329,114 @@ test("deploys the ambient Scheduler Gatekeeper the hosted flow preinstalls", asy
     .map(({ args }) => args)
     .filter((args) => args.includes("@gadgets/gatekeeper-scheduler"));
   assert.deepEqual(builds.map((args) => args.at(-1)), ["build:app", "build"]);
+});
+
+/**
+ * The collaboration layer. It is a Gatekeeper rather than a change to the Workshop because that is
+ * the extension point this fork owns: chats stay private per person, and a project is the only
+ * thing shared. See docs/collaboration.md.
+ */
+test("deploys the Project Gatekeeper with its own origin, domain, bucket and quotas", async () => {
+  const bases = await baseConfigs();
+  const generated = generateConfigs(validConfig, bases);
+
+  assert.equal(generated.project.name, "acme-cloudflare-os-projects");
+  // Its own copy of the origin, because it mints the links that address a project and its files and
+  // those have to point at the router. The sharing domain has to agree with the prop the Workshop's
+  // binding carries: the prop scopes a session, this var scopes the fetch handler resolving a link.
+  assert.equal(generated.project.vars!.PUBLIC_BASE_URL, "https://os.example.com");
+  assert.equal(generated.project.vars!.PROJECT_SHARING_DOMAIN, "https://os.example.com");
+  assert.equal(
+    generated.workshop.services!
+      .find((service) => service.binding === "GATEKEEPER_PROJECT")!.props!.sharingDomain,
+    generated.project.vars!.PROJECT_SHARING_DOMAIN);
+
+  // Quotas reach the Worker as strings, so they are written as strings here rather than trusted to
+  // survive JSON.stringify as numbers wrangler would then reject.
+  assert.equal(generated.project.vars!.PROJECT_MAX_FILE_BYTES, "10485760");
+  assert.equal(generated.project.vars!.PROJECT_MAX_TOTAL_BYTES, "1073741824");
+  assert.equal(generated.project.vars!.PROJECT_MAX_FILE_COUNT, "2000");
+
+  assert.deepEqual(generated.project.r2_buckets, [
+    { binding: "PROJECT_FILES", bucket_name: "cloudflare-os-project-files" },
+  ]);
+  // Where every project lives. Losing these migrations would orphan them behind the same Worker.
+  assert.deepEqual(generated.project.migrations, bases.project.migrations);
+  assert.ok(generated.project.migrations!.length > 0, "projects lost its DO migrations");
+
+  const builds = buildCommands(validConfig).map(({ args }) => args);
+  assert.ok(builds.some((args) => args.includes("gatekeeper-project")),
+    "the projects Worker is never built");
+});
+
+test("falls back to the documented default for a quota that is not configured", async () => {
+  const bases = await baseConfigs();
+  // The base config's own vars are the documented defaults, so an unconfigured quota inherits one
+  // rather than reaching the Worker as an empty string it would read back as NaN.
+  assert.ok(bases.project.vars!.PROJECT_MAX_FILE_BYTES, "the base config documents no default");
+
+  const partial = generateConfigs(
+    variant((c) => { c.project.limits = { maxFileCount: 50 }; }), bases);
+  assert.equal(partial.project.vars!.PROJECT_MAX_FILE_COUNT, "50");
+  assert.equal(
+    partial.project.vars!.PROJECT_MAX_FILE_BYTES, bases.project.vars!.PROJECT_MAX_FILE_BYTES);
+
+  const omitted = generateConfigs(variant((c) => { delete c.project.limits; }), bases);
+  assert.equal(
+    omitted.project.vars!.PROJECT_MAX_TOTAL_BYTES, bases.project.vars!.PROJECT_MAX_TOTAL_BYTES);
+});
+
+test("requests automatic provisioning for the project bucket when none is named", async () => {
+  const generated = generateConfigs(
+    variant((c) => { c.project.filesBucket = null; }), await baseConfigs());
+  assert.deepEqual(generated.project.r2_buckets, [{ binding: "PROJECT_FILES" }]);
+});
+
+test("scopes projects to an explicit sharing domain when one is set", async () => {
+  const generated = generateConfigs(
+    variant((c) => { c.project.sharingDomain = "acme-team"; }), await baseConfigs());
+  assert.equal(generated.project.vars!.PROJECT_SHARING_DOMAIN, "acme-team");
+  assert.equal(
+    generated.workshop.services!
+      .find((service) => service.binding === "GATEKEEPER_PROJECT")!.props!.sharingDomain,
+    "acme-team");
+  // Context keeps its own boundary: the two are separate data sets.
+  assert.equal(
+    generated.workshop.services!
+      .find((service) => service.binding === "GATEKEEPER_CONTEXT")!.props!.sharingDomain,
+    "https://os.example.com");
+});
+
+test("rejects a project block that would deploy a quota which never trips", () => {
+  assert.throws(
+    () => validateConfig(variant((c) => { c.workers.project = undefined; })),
+    /workers\.project\.name/);
+  assert.throws(
+    () => validateConfig(variant((c) => { c.project.sharingDomain = "  "; })),
+    /project\.sharingDomain/);
+  assert.throws(
+    () => validateConfig(variant((c) => { c.project.filesBucket = ""; })),
+    /project\.filesBucket/);
+  assert.throws(
+    () => validateConfig(variant((c) => { c.project.limits = { maxFileCount: "many" }; })),
+    /project\.limits\.maxFileCount/);
+  assert.throws(
+    () => validateConfig(variant((c) => { c.project.limits.maxFileBytes = 0; })),
+    /project\.limits\.maxFileBytes/);
+  assert.throws(
+    () => validateConfig(variant((c) => { c.project.limits.maxFileBytes = 1.5e6 + 0.5; })),
+    /whole number/);
+  // A per-file limit above the project total means no permitted file ever fits.
+  assert.throws(
+    () => validateConfig(variant((c) => {
+      c.project.limits = { maxFileBytes: 2048, maxTotalBytes: 1024 };
+    })),
+    /exceeds maxTotalBytes/);
+  assert.throws(
+    () => validateConfig(variant((c) => {
+      c.workers.project.name = c.workers.scheduler.name;
+    })),
+    /unique/i);
 });
 
 test("keeps every Worker behind the router off the public internet", async () => {

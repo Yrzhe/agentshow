@@ -1,0 +1,48 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "gatekeeper-project",
+  "main": ".wrangler/validate/src/index.ts",
+  "build": {
+    "command": "pnpm exec capnweb-validate build --out .wrangler/validate",
+    "watch_dir": "src"
+  },
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["allow_irrevocable_stub_storage", "nodejs_compat"],
+
+  // DO classes are reached via ctx.exports; no durable_objects binding is needed.
+  "migrations": [
+    {
+      "tag": "v0",
+      "new_sqlite_classes": [
+        "ProjectDurableObject",
+        "MemberProjectsDurableObject",
+        "ProjectGatekeeper"
+      ]
+    }
+  ],
+
+  // File bytes. Durable Object storage holds their metadata, which is small; the bytes are not.
+  "r2_buckets": [{ "binding": "PROJECT_FILES" }],
+
+  "vars": {
+    // Where this deployment answers, so a project or file link can be opened and pasted. Overwritten
+    // per deployment by scripts/deploy.ts; the default is what `pnpm dev-server` serves.
+    "PUBLIC_BASE_URL": "http://localhost:8787",
+
+    // Isolates the projects of one Workshop deployment from another's. Kept in step with the
+    // sharingDomain prop on the Workshop's binding to this Worker.
+    "PROJECT_SHARING_DOMAIN": "default",
+
+    // What one project may hold. Raising them is a deployment decision, and a paid one: file bytes
+    // are billed to the deployment's own R2 bucket.
+    "PROJECT_MAX_FILE_BYTES": "10485760",
+    "PROJECT_MAX_TOTAL_BYTES": "1073741824",
+    "PROJECT_MAX_FILE_COUNT": "2000"
+  },
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "invocation_logs": false }
+  }
+}

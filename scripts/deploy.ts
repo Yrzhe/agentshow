@@ -24,6 +24,7 @@ const packageDirs = {
   workshop: "cloudflare-os/packages/workshop-backend",
   context: "cloudflare-os/packages/gatekeeper-context",
   scheduler: "cloudflare-os/packages/gatekeeper-scheduler",
+  project: "packages/gatekeeper-project",
   customGatekeeper: "packages/custom-gatekeeper",
   errorReporter: "packages/error-reporter",
 } as const;
@@ -39,6 +40,7 @@ const requiredPaths = [
   "workers.workshop.name",
   "workers.context.name",
   "workers.scheduler.name",
+  "workers.project.name",
   "workers.customGatekeeper.name",
   "access.issuer",
   "access.audience",
@@ -68,10 +70,18 @@ const errorReportingPaths = [
 
 const resourcePaths = [
   "context.kvNamespaceId",
+  "project.filesBucket",
   "resources.blueprintsKvNamespaceId",
   "resources.avatarsKvNamespaceId",
   "resources.blueprintContentBucket",
 ];
+
+/** Per-project quotas, and the smallest value each may take. */
+const projectLimits = [
+  { key: "maxFileBytes", var: "PROJECT_MAX_FILE_BYTES", minimum: 1024 },
+  { key: "maxTotalBytes", var: "PROJECT_MAX_TOTAL_BYTES", minimum: 1024 },
+  { key: "maxFileCount", var: "PROJECT_MAX_FILE_COUNT", minimum: 1 },
+] as const;
 
 function valueAt(object: DeploymentConfig, path: string): unknown {
   return path.split(".").reduce<unknown>(
@@ -217,7 +227,7 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
     .map(([, worker]) => worker.name);
   if (new Set(workerNames).size !== workerNames.length) {
     throw new Error(
-      "Router, Workshop, Context, Scheduler, and custom Gatekeeper names must be unique.");
+      "Router, Workshop, Context, Scheduler, Projects, and custom Gatekeeper names must be unique.");
   }
   if (!workerNames.every((name) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name))) {
     throw new Error("Worker names must use lowercase letters, numbers, and hyphens.");
@@ -247,6 +257,8 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
       "context.sharingDomain must be null or a non-empty string. null scopes Context data to the " +
       "deployment's public origin, which is what the hosted deploy does.");
   }
+
+  validateProject(config);
 
   const issuer = new URL(config.access.issuer);
   if (issuer.protocol !== "https:" ||
@@ -391,6 +403,57 @@ function validateAiGateway(config: DeploymentConfig): void {
   }
 }
 
+/**
+ * The Project Gatekeeper's own block.
+ *
+ * `sharingDomain` gets the same treatment as Context's, because it is the same kind of value: a
+ * data-isolation boundary whose only failure mode is silence. A deployment that changes it keeps
+ * every project it had and shows none of them.
+ *
+ * The quotas are checked here rather than in the Worker because the Worker receives them as `vars`,
+ * which are strings: a typo becomes `NaN` and then, depending on the comparison, a quota that never
+ * trips.
+ */
+function validateProject(config: DeploymentConfig): void {
+  const project = config.project;
+  if (!project || typeof project !== "object" || Array.isArray(project)) {
+    throw new Error(
+      "project must be an object. It configures the Project Gatekeeper, which is what makes " +
+      "collaboration possible without a shared chat.");
+  }
+  const sharingDomain = project.sharingDomain;
+  if (sharingDomain !== null &&
+      (typeof sharingDomain !== "string" || !sharingDomain.trim())) {
+    throw new Error(
+      "project.sharingDomain must be null or a non-empty string. null scopes projects to the " +
+      "deployment's public origin, the same way context.sharingDomain scopes Context data.");
+  }
+
+  const limits = project.limits;
+  if (limits !== undefined && (limits === null || typeof limits !== "object" ||
+      Array.isArray(limits))) {
+    throw new Error("project.limits must be an object when present.");
+  }
+  for (const limit of projectLimits) {
+    const value = limits?.[limit.key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < limit.minimum) {
+      throw new Error(
+        `project.limits.${limit.key} must be null or a whole number of at least ` +
+        `${limit.minimum}. It reaches the Worker as the string ${limit.var}, so a value that is ` +
+        "not a number becomes a quota that never trips.");
+    }
+  }
+  const maxFileBytes = limits?.maxFileBytes;
+  const maxTotalBytes = limits?.maxTotalBytes;
+  if (typeof maxFileBytes === "number" && typeof maxTotalBytes === "number" &&
+      maxFileBytes > maxTotalBytes) {
+    throw new Error(
+      `project.limits.maxFileBytes (${maxFileBytes}) exceeds maxTotalBytes (${maxTotalBytes}), so ` +
+      "no file of the permitted size would ever fit in a project.");
+  }
+}
+
 function routeConfig(route: RouterRoute) {
   return route.workersDev
     ? { workers_dev: true, routes: undefined }
@@ -434,6 +497,7 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   const workshop = structuredClone(bases.workshop);
   const context = structuredClone(bases.context);
   const scheduler = structuredClone(bases.scheduler);
+  const project = structuredClone(bases.project);
   const customGatekeeper = structuredClone(bases.customGatekeeper);
   const errorReporter = config.errorReporting.enabled
     ? structuredClone(bases.errorReporter)
@@ -447,6 +511,9 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
     // vendor-RPC bindings. The binding name is what picks the /gatekeeper/<name> path.
     { binding: "GATEKEEPER_CONTEXT", service: config.workers.context.name },
     { binding: "GATEKEEPER_SCHEDULER", service: config.workers.scheduler.name },
+    // Also what puts a project's own links on the public origin: the binding name fixes the
+    // /gatekeeper/project prefix that file and project addresses are built from.
+    { binding: "GATEKEEPER_PROJECT", service: config.workers.project.name },
     { binding: "GATEKEEPER_CUSTOM", service: config.workers.customGatekeeper.name },
   ];
 
@@ -508,6 +575,14 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
       service: config.workers.scheduler.name,
       entrypoint: "GatekeeperVendor",
     },
+    // Scoped like Context, and for the same reason: `sharingDomain` names the set of projects this
+    // deployment owns, and a Worker cannot work out its own public origin.
+    {
+      binding: "GATEKEEPER_PROJECT",
+      service: config.workers.project.name,
+      entrypoint: "GatekeeperVendor",
+      props: { sharingDomain: config.project.sharingDomain ?? origin },
+    },
     {
       binding: "GATEKEEPER_CUSTOM",
       service: config.workers.customGatekeeper.name,
@@ -546,6 +621,29 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   // here without adding a configuration surface for it.
   setCommon(scheduler, config, config.workers.scheduler.name);
 
+  // The projects Worker needs its own copy of the public origin: it mints the links that address a
+  // project and its files, and those have to point at the router rather than at itself. The
+  // sharingDomain here has to stay in step with the prop on the Workshop's binding above -- that
+  // prop names the domain a session works in, this var is what the Worker's own fetch handler
+  // resolves a file link against.
+  setCommon(project, config, config.workers.project.name);
+  project.vars = {
+    ...project.vars,
+    PUBLIC_BASE_URL: origin,
+    PROJECT_SHARING_DOMAIN: config.project.sharingDomain ?? origin,
+    // A quota that was not configured keeps whatever the base config carries, which is the
+    // documented default. Written as strings because that is what the Worker parses them as: a
+    // number here would reach it as one and read back as a string anyway.
+    ...Object.fromEntries(projectLimits.flatMap((limit) => {
+      const value = config.project.limits?.[limit.key];
+      return typeof value === "number" ? [[limit.var, String(value)]] : [];
+    })),
+  };
+  project.r2_buckets = [
+    { binding: "PROJECT_FILES", ...(config.project.filesBucket
+      ? { bucket_name: config.project.filesBucket } : {}) },
+  ];
+
   setCommon(customGatekeeper, config, config.workers.customGatekeeper.name);
   customGatekeeper.vars = {
     CUSTOM_NAME: config.customGatekeeper.name,
@@ -557,7 +655,7 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   }
 
   return {
-    router, workshop, context, scheduler, customGatekeeper,
+    router, workshop, context, scheduler, project, customGatekeeper,
     ...(errorReporter && { errorReporter }),
   };
 }
@@ -604,6 +702,7 @@ export function buildCommands(config: DeploymentConfig): BuildCommand[] {
     // The Scheduler's `build` nests the same cached `vp run build:app`, so it needs the same pair.
     { args: submoduleBuild("@gadgets/gatekeeper-scheduler", "build:app") },
     { args: submoduleBuild("@gadgets/gatekeeper-scheduler") },
+    { args: ownBuild("gatekeeper-project") },
     { args: ownBuild("custom-gatekeeper") },
     ...(config.errorReporting.enabled ? [{ args: ownBuild("error-reporter") }] : []),
     // Access mode is a build-time constant in the frontend bundle (`src/useAuth.ts`), so it is set
@@ -719,6 +818,7 @@ async function main(): Promise<void> {
     workshop: await readJsonc(join(root, packageDirs.workshop, "wrangler.jsonc")),
     context: await readJsonc(join(root, packageDirs.context, "wrangler.jsonc")),
     scheduler: await readJsonc(join(root, packageDirs.scheduler, "wrangler.jsonc")),
+    project: await readJsonc(join(root, packageDirs.project, "wrangler.jsonc")),
     customGatekeeper: await readJsonc(join(root, packageDirs.customGatekeeper, "wrangler.jsonc")),
     errorReporter: await readJsonc(join(root, packageDirs.errorReporter, "wrangler.jsonc")),
   });
@@ -739,6 +839,7 @@ async function main(): Promise<void> {
     }
     deployWorker(packageDirs.context, deployArgs);
     deployWorker(packageDirs.scheduler, deployArgs);
+    deployWorker(packageDirs.project, deployArgs);
     deployWorker(packageDirs.customGatekeeper, deployArgs);
     deployWorker(packageDirs.workshop, deployArgs);
     // Last: it binds every one of the above.

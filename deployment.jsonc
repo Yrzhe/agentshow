@@ -32,6 +32,11 @@
     // the Context Gatekeeper
     "scheduler": { "name": "<SCHEDULER_WORKER_NAME>" },
 
+    // The Project Gatekeeper: shared files, comments, skills and settings for a team whose
+    // members each keep their own chats and their own agent.
+    // Reference: docs/collaboration.md
+    "project": { "name": "<PROJECT_WORKER_NAME>" },
+
     "customGatekeeper": { "name": "<CUSTOM_GATEKEEPER_WORKER_NAME>" },
     "errorReporter": { "name": "<ERROR_REPORTER_WORKER_NAME>" }
   },
@@ -84,6 +89,28 @@
     //   // Optional override; defaults to "gatekeeper-context-collections".
     //   "namespace": "custom-context-collections"
     // }
+  },
+
+  // The Project Gatekeeper, which is how people collaborate here: everyone runs their own agent in
+  // their own chats, and a project is the only thing they share.
+  // Reference: docs/collaboration.md
+  "project": {
+    // Isolates the projects belonging to this deployment, exactly as context.sharingDomain does for
+    // Context. null scopes them to the public origin. Changing it hides every existing project
+    // rather than failing visibly, so set it explicitly if the public origin may move.
+    "sharingDomain": null,
+
+    // File bytes. null: Wrangler provisions and remembers an R2 bucket on first deploy.
+    // string: bind an existing bucket by name.
+    "filesBucket": null,
+
+    // What one project may hold. Omit a field, or set it to null, to keep the Worker's default.
+    // These are the paid dimension: the bytes are billed to the bucket above.
+    "limits": {
+      "maxFileBytes": 10485760,
+      "maxTotalBytes": 1073741824,
+      "maxFileCount": 2000
+    }
   },
 
   // Displayed to agents when the example custom integration is enabled in /admin.
