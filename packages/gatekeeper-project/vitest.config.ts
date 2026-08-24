@@ -15,6 +15,11 @@ export default defineConfig({
         durableObjects: {
           PROJECT_STORE: { className: "ProjectDurableObject", useSQLite: true },
           MEMBER_PROJECTS: { className: "MemberProjectsDurableObject", useSQLite: true },
+          PROJECT_GATEKEEPER: { className: "ProjectGatekeeper", useSQLite: true },
+          // The gatekeeper facet reads `ctx.props`, and a `DurableObjectClass` carrying props is
+          // only reachable through `ctx.facets` -- so the suites drive it from a hook Durable
+          // Object, exactly as the overseer does, rather than from a namespace binding.
+          TEST_HOOKS: { className: "TestHooks", useSQLite: true },
         },
         r2Buckets: ["PROJECT_FILES"],
         bindings: {

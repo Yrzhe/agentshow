@@ -320,9 +320,21 @@ export class ProjectGatekeeper
     this.#pruneAppliedActions();
   }
 
+  /**
+   * Let go of an action nobody agreed to.
+   *
+   * An applied one is refused rather than tidied up. Rejecting a write means throwing away the bytes
+   * it staged, and once the write has landed those bytes are the file's own -- discarding them would
+   * leave a row pointing at nothing, and dropping the record would take the undo with it. Reverting
+   * is the operation that undoes something that happened.
+   */
   async rejectAction(action: number): Promise<void> {
     const record = this.ctx.storage.kv.get<ActionRecord>(actionKey(action));
     if (!record) return;
+    if (record.applied) {
+      throw new Error(
+        `Action ${action} was already applied, so there is nothing to reject. Undo it instead.`);
+    }
     await rejectAction(this.#context(), record.action);
     this.ctx.storage.kv.delete(actionKey(action));
   }
