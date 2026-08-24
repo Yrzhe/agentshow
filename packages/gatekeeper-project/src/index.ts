@@ -152,7 +152,10 @@ async function serveWidget(
     }
     const opened = await store.openWidgetBackend(widget.widgetId, offered);
     if (!opened.ok) return refusal(opened.status, opened.message);
-    const loader = env.WIDGET_LOADER;
+    // Declared in this package's own wrangler.jsonc, so the generated types say it is always there.
+    // Checked anyway, because a deployment that strips the binding should get an answer that names
+    // the reason rather than a TypeError out of the middle of a widget's request.
+    const loader = env.WIDGET_LOADER as WorkerLoader | undefined;
     if (!loader) {
       return refusal(
         501,
