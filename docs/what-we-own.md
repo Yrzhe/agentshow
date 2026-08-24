@@ -1,6 +1,6 @@
 # 这是一条 multiplayer 探索线
 
-产品名先叫 Cloudflare OS Multiplayer。目标：同一个 project / workspace 里协作，但每人用自己的 agent，看不到别人的 chat。官方 Cloudflare OS 做不到，所以我们改核心。
+产品名先叫 Cloudflare OS Multiplayer。目标：同一个 project / workspace 里协作，但每人用自己的 agent，看不到别人的 chat。官方 Cloudflare OS 没这一层，所以这一层归我们做。
 
 ## 仓库怎么摆
 
@@ -9,7 +9,7 @@
 - 官方对照：`cloudflare/cloudflare-os`、`cloudflare/cloudflare-os-starter`
 - 当前 pin 写在 [upstream-pin.md](upstream-pin.md)
 
-子模块指向我们自己的核心 fork，改聊天可见性、协作模型，都打在 `Yrzhe/cloudflare-os` 的 `multiplayer` 上，不要直接在外壳里摊开官方源码。
+子模块指向我们自己的核心 fork。真要改核心，就打在 `Yrzhe/cloudflare-os` 的 `multiplayer` 上，不要直接在外壳里摊开官方源码。
 
 ## 协作那一层在外壳里
 
@@ -17,18 +17,19 @@
 comment、skill、环境变量全在那里，chat 一点都不碰。设计和取舍写在
 [collaboration.md](collaboration.md)。
 
-所以核心那条线留给真正只能在核心做的事——左侧的 project 路由入口、右侧功能区的挂载点——而不是数据和
-权限。
+数据和权限都留在这个 Gatekeeper 里，不往核心搬——它自己就是 project 的鉴权边界，每个方法都带调用者的
+member id。
 
-## 现在可以动核心
+## 核心只做界面入口
 
-多人协作探索允许改 `cloudflare-os/` 里这些：
+多人协作这条线里，`cloudflare-os/` 只改真正只能在核心改的东西：
 
-- 聊天归属和可见性（按人隔离）
-- workspace / project 分享以后谁能进哪条 chat
-- 右侧共享资产（文件、widget、知识库）如果官方模型不够
+- 左侧的 project 路由入口
+- 右侧功能区的挂载点
+- 聊天归属和可见性（按人隔离），如果官方模型不够
 
-能放在外壳里的仍然放外壳：`deployment.jsonc`、`packages/` 自建 Gatekeeper、`/admin`、我们的文档和 CI。
+共享资产（文件、skill、环境变量）不算在内：那些是 Gatekeeper 的数据，核心只负责把它显示出来。剩下的
+一律放外壳：`deployment.jsonc`、`packages/` 自建 Gatekeeper、`/admin`、我们的文档和 CI。
 
 ## 仍然不要盲跟官方
 
