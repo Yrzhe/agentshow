@@ -118,8 +118,25 @@ export type WidgetAssetResult =
     }
   | { ok: false; status: number; message: string };
 
-/** Everything needed to run one widget's backend for one request, and nothing more. */
-export type WidgetBackendResult =
+/** Everything needed to run one widget's own backend module for one request, and nothing more. */
+export interface WidgetBackendModule {
+  /** The backend module's source. */
+  source: string;
+  /** The project's shared configuration, values included: this is the widget's environment. */
+  envVars: Record<string, string>;
+  /** Changes whenever the module or the configuration does, so a stale isolate is not reused. */
+  revision: string;
+}
+
+/**
+ * Who is asking under a widget's `api/`, and what answers there.
+ *
+ * One result for both cases, because which one applies is a fact about the widget that only this
+ * object knows: whether it holds a `backend.js`. Answering it in the same breath as "who is asking"
+ * is what keeps the HTTP handler from having to ask twice, and keeps the shared configuration a
+ * backend runs with out of a reply that is not going to run one.
+ */
+export type WidgetApiResult =
   | {
       ok: true;
       widgetId: string;
@@ -127,12 +144,8 @@ export type WidgetBackendResult =
       name: string;
       visibility: ProjectFileVisibility;
       principal: WidgetPrincipal;
-      /** The backend module's source. */
-      source: string;
-      /** The project's shared configuration, values included: this is the widget's environment. */
-      envVars: Record<string, string>;
-      /** Changes whenever the module or the configuration does, so a stale isolate is not reused. */
-      revision: string;
+      /** The widget's own backend, or null: then its built-in store is what answers `api/`. */
+      backend: WidgetBackendModule | null;
       renewedToken?: string;
     }
   | { ok: false; status: number; message: string };
@@ -772,7 +785,7 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
   // it, `canWrite` decides who may change it, `canDelete` lets a project owner moderate. What is
   // different is that a widget is opened over HTTP by a browser rather than read over RPC by an
   // agent, so this section also holds the two methods that decide without a member id in hand --
-  // `fetchWidgetAsset` and `openWidgetBackend` -- and both of them re-derive the caller's standing
+  // `fetchWidgetAsset` and `openWidgetApi` -- and both of them re-derive the caller's standing
   // from current state on every single request.
 
   async listWidgets(memberId: string, opts: { limit: number }): Promise<ProjectWidgetSummary[]> {
@@ -1016,32 +1029,25 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
   }
 
   /**
-   * What a widget's backend needs to answer one request.
+   * Who is asking under a widget's `api/`, and what should answer them.
    *
-   * The environment is assembled here rather than in the handler because this object is the only
-   * one that may read a project's shared configuration, and because the decision about who is
-   * asking has to be made in the same breath as the decision about what they get. Note what is not
-   * in the answer: no R2 keys, no other members' files, no token belonging to whoever is browsing.
+   * A widget with a `backend.js` gets everything its isolate needs; a widget without one gets
+   * `backend: null`, which is the handler's cue to serve the widget's own store directly. The
+   * environment is assembled here rather than in the handler because this object is the only one
+   * that may read a project's shared configuration, and because the decision about who is asking
+   * has to be made in the same breath as the decision about what they get.
+   *
+   * Note what is not in either answer: no R2 keys, no other members' files, no token belonging to
+   * whoever is browsing. And note what is not in the `backend: null` one: the shared configuration
+   * is read only when there is a module to run with it, so a widget's built-in store cannot hand
+   * out a value the handler was never given.
    */
-  async openWidgetBackend(
-    widgetId: string,
-    tokens: readonly string[],
-  ): Promise<WidgetBackendResult> {
+  async openWidgetApi(widgetId: string, tokens: readonly string[]): Promise<WidgetApiResult> {
     const opened = await this.#openWidget(widgetId, tokens);
     if (!opened.ok) return opened;
     const { widget, principal, renewedToken } = opened;
-    const backend = this.#widgetFile(widget.widget_id, WIDGET_BACKEND_PATH);
-    if (!backend) {
-      return {
-        ok: false,
-        status: 404,
-        message: `The widget ${widget.name} has no backend, so it answers nothing under api/.`,
-      };
-    }
+    const module = this.#widgetFile(widget.widget_id, WIDGET_BACKEND_PATH);
     try {
-      const source = new TextDecoder().decode(await this.#widgetBytes(widget, backend));
-      const vars = this.ctx.storage.sql.exec<{ name: string; value: string; updated: number }>(
-        "SELECT name, value, updated FROM env_vars ORDER BY name").toArray();
       return {
         ok: true,
         widgetId: widget.widget_id,
@@ -1049,12 +1055,7 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
         name: widget.name,
         visibility: widget.visibility as ProjectFileVisibility,
         principal,
-        source,
-        envVars: Object.fromEntries(vars.map((row) => [row.name, row.value])),
-        // Enough to notice any change that should retire a running isolate: the module itself, and
-        // the configuration it was built with.
-        revision: `${backend.content_key}.${vars.length}.${
-          vars.reduce((latest, row) => Math.max(latest, row.updated), 0)}`,
+        backend: module ? await this.#widgetBackend(widget, module) : null,
         ...(renewedToken ? { renewedToken } : {}),
       };
     } catch (error) {
@@ -1335,6 +1336,24 @@ export class ProjectDurableObject extends DurableObject<Cloudflare.Env> {
       hasBackend: files.some((file) => file.path === WIDGET_BACKEND_PATH),
       updated: new Date(row.updated).toISOString(),
       url: widgetUrl(this.env, this.#requireProject().project_id, row.widget_id),
+    };
+  }
+
+  /**
+   * One widget's backend module, and the environment it is to run with.
+   *
+   * The revision is what names the isolate, so it has to move whenever anything the module was
+   * built with does -- the module itself, and every shared configuration value, since the backend
+   * reads those out of its `env`.
+   */
+  async #widgetBackend(widget: WidgetRow, module: WidgetFileRow): Promise<WidgetBackendModule> {
+    const vars = this.ctx.storage.sql.exec<{ name: string; value: string; updated: number }>(
+      "SELECT name, value, updated FROM env_vars ORDER BY name").toArray();
+    return {
+      source: new TextDecoder().decode(await this.#widgetBytes(widget, module)),
+      envVars: Object.fromEntries(vars.map((row) => [row.name, row.value])),
+      revision: `${module.content_key}.${vars.length}.${
+        vars.reduce((latest, row) => Math.max(latest, row.updated), 0)}`,
     };
   }
 

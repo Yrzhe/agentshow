@@ -325,8 +325,8 @@ describe("opening a widget over HTTP", () => {
   });
 });
 
-describe("what a widget's backend is handed", () => {
-  it("gets the project's configuration values, its own identity and the caller", async () => {
+describe("what answers under a widget's api/", () => {
+  it("hands a backend the project's configuration, its own identity and the caller", async () => {
     const { store, projectId } = await projectWithBob();
     const shared = await widget(store, { path: "shared/dashboard" });
     await store.setEnvVar(alice.memberId, "GREETING", "hello", "");
@@ -336,50 +336,78 @@ describe("what a widget's backend is handed", () => {
     });
 
     const token = tokenOf((await store.mintWidgetLink(bob.memberId, shared.widgetId)).url);
-    const opened = await store.openWidgetBackend(shared.widgetId, [token]);
+    const opened = await store.openWidgetApi(shared.widgetId, [token]);
     expect(opened).toMatchObject({
       ok: true,
       projectId,
       widgetId: shared.widgetId,
-      // Values, not just names: shared configuration is what makes a widget run for everybody.
-      envVars: { GREETING: "hello" },
       principal: { kind: "member", memberId: "bob", role: "member" },
-      source: "export default {};",
+      backend: {
+        source: "export default {};",
+        // Values, not just names: shared configuration is what makes a widget run for everybody.
+        envVars: { GREETING: "hello" },
+      },
     });
   });
 
-  it("changes its revision when the module or the configuration does", async () => {
+  it("changes a backend's revision when the module or the configuration does", async () => {
     const { store } = await projectWithBob();
     const published = await widget(store, { path: "shared/site", visibility: "public" });
     await writeWidgetFile(store, {
       widgetId: published.widgetId, path: "backend.js", content: "export default { a: 1 };",
       mimeType: "text/javascript",
     });
-    const first = await store.openWidgetBackend(published.widgetId, []);
+    const first = await store.openWidgetApi(published.widgetId, []);
 
     await store.setEnvVar(alice.memberId, "TOKEN", "one", "");
-    const configured = await store.openWidgetBackend(published.widgetId, []);
+    const configured = await store.openWidgetApi(published.widgetId, []);
     // The revision names the isolate, so a value the backend reads changing has to change it too --
     // otherwise a running isolate would keep answering with the old one.
-    expect(configured.ok && configured.revision).not.toBe(first.ok && first.revision);
+    expect(configured.ok && configured.backend?.revision)
+      .not.toBe(first.ok && first.backend?.revision);
 
     await writeWidgetFile(store, {
       widgetId: published.widgetId, path: "backend.js", content: "export default { a: 2 };",
       mimeType: "text/javascript",
     });
-    const rewritten = await store.openWidgetBackend(published.widgetId, []);
-    expect(rewritten.ok && rewritten.revision).not.toBe(configured.ok && configured.revision);
+    const rewritten = await store.openWidgetApi(published.widgetId, []);
+    expect(rewritten.ok && rewritten.backend?.revision)
+      .not.toBe(configured.ok && configured.backend?.revision);
   });
 
-  it("says so when there is no backend, and refuses one the caller cannot open", async () => {
+  it("reports no backend for a widget without one, and reads no configuration for it", async () => {
     const { store } = await projectWithBob();
     const shared = await widget(store, { path: "shared/dashboard" });
-    expect(await store.openWidgetBackend(shared.widgetId, []))
-      .toMatchObject({ ok: false, status: 404 });
+    await store.setEnvVar(alice.memberId, "API_TOKEN", "s3cret", "");
 
+    // A widget with no module of its own still opens: its `api/` is answered by its built-in
+    // store, which the Worker serves itself. What it does not get is an environment -- the shared
+    // configuration a backend runs with is read only when there is a backend to run.
     const token = tokenOf((await store.mintWidgetLink(bob.memberId, shared.widgetId)).url);
-    expect(await store.openWidgetBackend(shared.widgetId, [token]))
-      .toMatchObject({ ok: false, status: 404, message: expect.stringContaining("no backend") });
+    const opened = await store.openWidgetApi(shared.widgetId, [token]);
+    expect(opened).toMatchObject({
+      ok: true,
+      widgetId: shared.widgetId,
+      principal: { kind: "member", memberId: "bob", role: "member" },
+      backend: null,
+    });
+    expect(JSON.stringify(opened)).not.toContain("s3cret");
+  });
+
+  it("refuses api/ altogether to a caller who cannot open the widget", async () => {
+    const { store } = await projectWithBob();
+    const shared = await widget(store, { path: "shared/dashboard" });
+    await writeWidgetFile(store, {
+      widgetId: shared.widgetId, path: "backend.js", content: "export default {};",
+      mimeType: "text/javascript",
+    });
+
+    // No capability at all. Nothing about the widget is admitted, so neither is the fact that it
+    // has a backend or a store.
+    expect(await store.openWidgetApi(shared.widgetId, []))
+      .toMatchObject({ ok: false, status: 404 });
+    expect(await store.openWidgetApi(shared.widgetId, ["nonsense.1.deadbeef"]))
+      .toMatchObject({ ok: false, status: 404 });
   });
 });
 

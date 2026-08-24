@@ -34,11 +34,20 @@
   // small; the bytes are not.
   "r2_buckets": [{ "binding": "PROJECT_FILES" }],
 
-  // How a widget's backend runs: a real Worker in its own isolate, built per widget from the module
-  // its owner wrote, with an env this Worker assembles and no way out to the network. Nothing is
-  // evaluated in this Worker's own scope, so a widget cannot reach this Worker's bindings.
+  // No `worker_loaders` binding here, deliberately.
+  //
+  // A widget's own `backend.js` runs as a real Worker in its own isolate, loaded through a
+  // `WIDGET_LOADER` binding. That needs Dynamic Worker Loaders on the account, which is a feature a
+  // deployment may simply not have -- and a binding wrangler cannot create is a deploy that fails
+  // outright rather than a feature that is missing. So the binding is opt-in: set
+  // `project.widgetBackends` in deployment.jsonc and scripts/deploy.ts adds it to the generated
+  // config. Local development adds it the same way, or by adding the line below by hand:
+  //
+  //   "worker_loaders": [{ "binding": "WIDGET_LOADER" }],
+  //
+  // Without it, widgets serve their files and the built-in store at `api/store` exactly as they do
+  // with it; only a widget carrying a `backend.js` is refused, with a 501 that says why.
   // https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/
-  "worker_loaders": [{ "binding": "WIDGET_LOADER" }],
 
   "vars": {
     // Where this deployment answers, so a project or file link can be opened and pasted. Overwritten
