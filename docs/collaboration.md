@@ -30,14 +30,22 @@
 | 中间对话 session | 完全不碰。每人一条自己的 chat，agent 通过 `openProject()` 拿到共享内容 |
 | 右侧功能区 | 文件和 comment 从 `listFiles()` / `listComments()` 来；文件链接可以直接在浏览器里打开 |
 
+widget 现在**没有**挂进任何面板：`getWidgetLink()` 给的是一个在新标签页里打开的地址。左侧导航项和其它
+官方 UI 一个字都没改——那条线归核心 fork。
+
 ## 数据放在哪
 
 | 东西 | 放在哪 | 为什么 |
 | --- | --- | --- |
-| project 的成员、文件元数据、comment、环境变量 | 每个 project 一个 `ProjectDurableObject`（SQLite） | 一个 project 就是一个一致性边界，权限判断全在这一个地方 |
-| 文件字节 | R2（`PROJECT_FILES`） | DO 存储单值上限 2 MB，装不下文档 |
+| project 的成员、文件元数据、comment、环境变量、widget 元数据 | 每个 project 一个 `ProjectDurableObject`（SQLite） | 一个 project 就是一个一致性边界，权限判断全在这一个地方 |
+| 文件字节，widget 的文件也在内 | R2（`PROJECT_FILES`），widget 的走 `…/widgets/` 前缀 | DO 存储单值上限 2 MB，装不下文档 |
 | 某个人加入了哪些 project | 每个账号一个 `MemberProjectsDurableObject` | 列自己的 project 不用去问每一个 project |
+| 一个 widget 的后端存的东西 | 每个 widget 一个 `WidgetStoreDurableObject` | 后端是成员写的代码，它能拿到的只该是属于这一个 widget 的那点存储 |
 | 待审批的动作 | `ProjectGatekeeper` facet 自己的存储 | 审批是个人的事，不该让别人看见你在等什么 |
+
+widget 的两张表（`widgets`、`widget_files`）和其它表一样是 `CREATE TABLE IF NOT EXISTS`，**只增不改**：
+现有的 project 和文件一行都不用动。wrangler 的 migration 也一样，`v0` 还是当天那三个类，
+`WidgetStoreDurableObject` 走一条自己的 `v1`。
 
 `MemberProjectsDurableObject` 是**索引，不是事实来源**。成员关系记在 project 里，所以索引里的条目可能
 比成员关系活得久——project owner 把人踢掉时不会伸手去改那个人的账号。列 project 的时候会拿每个 id 去
@@ -104,12 +112,14 @@ widget 要能对所有人跑起来就得有这些值——所以边界就是成�
 
 ## 链接
 
-每个 project 和每个文件都有地址，同一个字符串同时干三件事：人点开、agent 引用、Worker 自己的 fetch
-handler 解析回来。
+每个 project、每个文件、每个 widget 都有地址，同一个字符串同时干三件事：人点开、agent 引用、Worker
+自己的 fetch handler 解析回来。
 
 ```
-https://<origin>/gatekeeper/project/p/<projectId>          project
-https://<origin>/gatekeeper/project/f/<projectId>/<fileId> 文件字节
+https://<origin>/gatekeeper/project/p/<projectId>              project
+https://<origin>/gatekeeper/project/f/<projectId>/<fileId>     文件字节
+https://<origin>/gatekeeper/project/w/<projectId>/<widgetId>/  widget（前端）
+https://<origin>/gatekeeper/project/w/<projectId>/<widgetId>/api/…  widget 的后端
 ```
 
 `/gatekeeper/project` 这个前缀是 router 里 `GATEKEEPER_PROJECT` 这个 binding 名字定的，不是配置出
@@ -120,6 +130,9 @@ https://<origin>/gatekeeper/project/f/<projectId>/<fileId> 文件字节
 - **public 文件的链接是稳定的**，其它文件的链接**签了名并且会过期**（10 分钟）。签名的 key 不出
   `ProjectDurableObject`，签的内容包含 fileId 和过期时间，所以一个 token 只能证明"签它的时候，签的人
   确实能读这个文件"——既不能挪到别的文件上，也不能自己把有效期改长。
+- **widget 的链接同理，但多两件事**：签的内容里除了 widgetId 和过期时间还有它是给哪个成员的，而且它每
+  次被用到都会被拿去和当前状态重新对一遍。详见 [widget](#widgetproject-里的-mini-app)。widget 的地址
+  以斜杠结尾——它是个目录，不是一篇文档。
 
 ## 写操作要人点头
 
@@ -152,13 +165,173 @@ public 文件不登记任何集合——没有人需要被挡在外面。
 校验是**对当前状态实时回答的**，这正是它的用处：一个在文件还是 project 可见时通过校验的 observer，在
 owner 把它改回 private 之后就通不过了。
 
+## widget：project 里的 mini app
+
+**widget 是一个成员发布到 project 里的小应用**：一个 `index.html` 加上它需要的静态文件，外加一个可选
+的 `backend.js`。打开它的链接就是在浏览器里跑它。
+
+它不是官方的 Gadget。把人加进一个 gadget 等于共用一条 chat；widget 分享的是**应用**，不是 chat。它也
+不是 skill——skill 是给 agent 读的说明书，widget 是给人点开的东西。一个 widget 可以**用** project 的
+skill 和环境变量，但它自己不是 skill。
+
+### 可见性就是分享开关
+
+widget 用的是文件那三级可见性，一个字都没改：
+
+```
+private   只有 owner 能打开
+project   project 的每个成员都能打开
+public    任何能访问到这个 deployment、并且拿到链接的人都能打开
+```
+
+`public` 依然是字面意思——这个部署跑在 Cloudflare Access 后面，所以 public widget 仍然在 Access 的边
+界内，**不是公网可见**。
+
+规则和文件共用同一套函数（`model.ts` 里的 `defaultVisibility` / `visibilityAfterMove` / `canRead` /
+`canWrite` / `canDelete`），不是抄一遍：
+
+- **路径就是意图。** `shared/` 下面的 widget 默认 `project` 可见，别处默认 `private`。
+- **`setWidgetVisibility()` 是显式的那个开关**，也是唯一的分享控制。
+- **`moveWidget()` 同时改路径和可见性**，唯一的例外还是 `public`：发布过的 widget 改名之后还是 public。
+- **只有 owner 能改自己的 widget**，project owner 也不行。删除是唯一的例外，project owner 可以删任何
+  widget——需要有人能清场。
+
+这里刻意没有发明第二套权限。一个已经知道"谁能读我的文件"的成员，不应该还得再学一遍"谁能打开我的
+widget"。
+
+### 地址
+
+```
+/gatekeeper/project/w/<projectId>/<widgetId>/…      前端文件
+/gatekeeper/project/w/<projectId>/<widgetId>/api/…  后端
+```
+
+widget 的地址**以斜杠结尾**，因为 widget 是个目录而不是一篇文档：`index.html` 里写 `app.js` 是相对当
+前目录解析的，少了那个斜杠就会跑到 widget 外面去找。地址根部解析成 `index.html`；`api/` 前缀归后端，
+所以 widget 里不允许存 `api/…` 这样的文件——那种文件的地址永远没人能访问到，不如在写的时候就拒绝。
+
+`backend.js` 永远不会被当成静态文件发出去：那是模块源码，把它交出去等于把作者内联在里面的任何东西一起
+发布了。
+
+### CSP：和文件预览不一样，而且必须不一样
+
+文件预览走的是 `default-src 'none'; sandbox`。对一篇没人指望它运行的文档这是对的，对一个应用这是致命
+的——widget 不能跑自己的脚本就不成其为 widget。所以 widget 前端用的是另一条策略，说的是"给它哪些能
+力"而不是"一个都不给"：
+
+```
+default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';
+img-src 'self' data: blob:; font-src 'self' data:;
+connect-src 'self' <这个 widget 自己的 api/>;
+base-uri 'none'; form-action 'none'; frame-ancestors 'self'
+```
+
+两条路由都保留 `x-content-type-options: nosniff`。**文件预览那条路由一点没动。**
+
+`connect-src` 里点名了 widget 自己的后端，但里面同时还有 `'self'`，所以这里要把话说明白：**CSP 不是
+widget 和这个部署之间的那道墙，同源从来都不是。** widget 是从部署自己的 origin 上发出去的，它用相对
+URL 取自己的文件。真正让 widget 的伸手范围有限的是另外三样东西：路由、按路径限定的 cookie，以及它的
+后端跑在一个除了给它的东西以外什么都没有的 isolate 里。
+
+代价说清楚：**发布一个 widget，等于对它的作者给出接近浏览器扩展那种程度的信任**——前端代码是成员自己
+写的，跑在部署的 origin 上。这也正是 `setWidgetBackend()` 从不进入自动批准名单的原因。
+
+### 认证：signed capability + 按路径限定的 cookie
+
+浏览器那一侧有 Access，但 Project 账号 id 是一个随机 UUID 而不是邮箱（`getAuthenticatedEmail()` 现在
+返回 null），所以**不能把 Access 的邮箱当成一个成员**。这里没有发明 OAuth 流程，做法是文件 token 的
+同一个思路：
+
+1. **`getWidgetLink()` 签发一个 capability**，签的内容包含 widgetId、它是给哪个成员的、以及过期时间
+   （10 分钟）。签名 key 不出 `ProjectDurableObject`。public widget 拿到的是**稳定链接**——里面没有
+   任何会过期的东西。
+2. **第一次命中就换成 cookie**：`HttpOnly`、`SameSite=Lax`、`Path` 限定到这一个 widget 的路径。这样
+   SPA 自己的 fetch 不用在每个 URL 上挂 token，widget 的脚本也读不到它，浏览器也不会把它送到部署的
+   任何别的地方去。
+3. **每一个请求都重新判定**，前端和后端都一样：token 是不是真的、它指的成员现在还是不是成员、widget
+   现在的可见性让不让他进。三个问题的答案都是**对当前状态实时回答的**，和 observer 校验是同一个思路。
+   所以 owner 把 widget 改回 private，已经打开着它的浏览器立刻就被关在外面——那个 cookie 签名完好、
+   也还没过期，变的是它背后的答案。
+4. **每次答应都换一张新的 capability**（滑动续期）。这件事之所以安全，恰恰是因为每次都重判了：widget
+   在被用着的时候一直开着，答案一变就立刻关上。
+
+token 里带着 widgetId，所以一个 widget 的 cookie 拿到另一个 widget 上是无效的——两者是同一个 project
+key 签的，payload 里的 widgetId 就是唯一把它们分开的东西。cookie 名字也按 widget 区分。
+
+### 后端能看见什么
+
+`backend.js` 是一个普通的 Worker 模块（`export default { async fetch(request, env) { … } }`）。
+
+**跑法是真的 isolate**，不是 `eval`。这个 pin 已经有 Worker Loader（`worker_loaders` binding，
+`deployment.jsonc` 那份账号要求里本来就列着 Dynamic Worker Loaders），所以模块是作为一个真正的 Worker
+加载起来的，`env` 由这个 Worker 亲手拼出来。**没有任何东西在这个 Worker 自己的作用域里被求值**，所以
+widget 写什么都碰不到这个 Worker 的 binding。没有用 Cloudflare Sandbox 或 Containers。
+
+`env` 里就三类东西：
+
+| 名字 | 是什么 |
+| --- | --- |
+| project 的环境变量 | **带值**，不只是名字。这是共享 skill 或 widget 能对所有人跑起来的前提 |
+| `WIDGET` | `{ projectId, widgetId, principal }`，`principal` 是 `{ kind: "member", memberId, role }` 或 `{ kind: "public" }` |
+| `STORE` | 只属于这一个 widget 的 KV，`get` / `put` / `delete` / `list`。一个 widget 一个 Durable Object |
+
+`WIDGET` 和 `STORE` 是保留名：project 要是刚好有同名的环境变量，它不会覆盖掉"谁在问"这个 binding。
+
+**不在 `env` 里的东西**同样重要：没有 project 的 Durable Object，没有 R2 bucket，没有别的成员的
+private 文件，没有浏览器那一侧的 Access token 或 cookie。principal 是一个 principal，不是一张凭证。
+
+| 限制 | 值 | 为什么 |
+| --- | --- | --- |
+| `globalOutbound` | `null` | **后端默认到不了公网。** 这是运行时自己的开关，不是这里的一句承诺 |
+| 超时 | 10 秒 | 挂住或者死循环的模块会被丢掉，等着的人拿到 502 |
+| 请求体 | 1 MiB | 在启动 widget 的代码**之前**就在这里缓冲并卡住，不信调用方写的 header |
+| 模块大小 | 128 KiB | widget 的后端是胶水，不是 bundle |
+
+后端拿到的请求是**重新造过的**：调用方的 cookie 和 Access session 不是它的事，路由前缀也不该由它来
+剥——它看到的是 `/api/…`，所以一个 widget 的后端不管是 private 还是已发布，读起来都一样。它的回答里
+`set-cookie` 和它自己的安全 header 会被去掉：widget 设的 cookie 会是整个部署的 cookie。
+
+isolate 按 widget × revision × 调用方缓存。revision 包含后端模块和 project 环境变量，所以改一个值就
+会换一个新 isolate；调用方在 key 里，是因为 principal 在 `env` 里，而 loader 命中缓存时不会重跑那个
+拼 `env` 的回调。
+
+**一句要记住的话：** 后端能读 project 的环境变量，所以**把一个 widget 设成 public，等于把它的后端愿意
+交出来的任何东西一起发布了**。`setWidgetVisibility()` 走的是 `project.share` 这个 action kind，描述里
+会明说这件事。
+
+### 写操作还是走那个审批队列
+
+没有第二套东西。`createWidget` / `writeWidgetFile` / `setWidgetBackend` / `moveWidget` /
+`setWidgetVisibility` / `deleteWidget` 全部走同一个 plan / commit 两段 + approval queue，`actions.ts`
+里一条条列着怎么 apply、怎么 reject、怎么 revert。
+
+action kind 分两个是故意的：
+
+- `project.widget`——建一个 widget、写它的静态文件。和"写自己的文件"是同一种事，**在自动批准名单里**。
+- `project.widget-code`——写 `backend.js`。这是**代码**，会带着 project 的环境变量跑、回答任何能打开这
+  个 widget 的人。**明确不在自动批准名单里**，这是整个 gatekeeper 里唯一一个人必须看一眼的写操作。
+
+所以 `writeWidgetFile()` 会拒绝 `backend.js`，让你去用 `setWidgetBackend()`：不是为了多一个方法，而是
+为了让人点头的那段描述里写着"这是代码"。
+
+widget 的源文件没有做成普通的 project 文件（也就是说，它们不能被 comment、不能 `copyFile()`）。理由是
+**可见性得有唯一一个说法**：widget 是可见性的单位，如果它的每个文件各有一个可见性，"谁能打开这个
+widget"就会有两个互相矛盾的答案。想聊某个 widget 的做法，把想聊的东西作为普通文件写进 `shared/`。
+
+### 配额
+
+widget 的字节**算进 project 现有的配额**，和文件同一个额度：一个 widget 的 `index.html` 的字节和一篇
+文档的字节花的是一样的钱，分成两个额度等于白送一份没人批准过的配额。文件数也一起算。
+
+覆盖 widget 里的一个文件同样只按差额计费。
+
 ## 配额（付费点）
 
 | 变量 | 默认 | 管什么 |
 | --- | --- | --- |
-| `PROJECT_MAX_FILE_BYTES` | 10 MiB | 单个文件 |
-| `PROJECT_MAX_TOTAL_BYTES` | 1 GiB | 一个 project 的总字节 |
-| `PROJECT_MAX_FILE_COUNT` | 2000 | 一个 project 的文件数 |
+| `PROJECT_MAX_FILE_BYTES` | 10 MiB | 单个文件，widget 里的文件也算 |
+| `PROJECT_MAX_TOTAL_BYTES` | 1 GiB | 一个 project 的总字节，文件 + widget |
+| `PROJECT_MAX_FILE_COUNT` | 2000 | 一个 project 的文件数，文件 + widget |
 
 在 `deployment.jsonc` 的 `project.limits` 里改。这是部署级的决定，也是花钱的那一维：字节记在这个部署
 自己的 R2 bucket 上。
@@ -186,11 +359,21 @@ owner 把它改回 private 之后就通不过了。
 
 ## 还没做的
 
-- **widget 协作**：project 内的 mini app（EdgeSpark 前后端 + init 时带 skill 文件夹的 agent native
-  app），以及 view → issue → git。环境变量和 skill 这两块地基已经在了。
+- **官方 Gadget 那条路**：widget 是这一层自己的东西，不是官方 Gadget。分享一个 gadget 会分享 chat，
+  这正是这个 fork 存在的原因，所以 widget 明确不往那边靠。
+- **widget 的界面挂载点**：widget 只有一个自己的地址，没有左侧导航项，也没有嵌进右侧功能区。要嵌进去
+  得改官方 UI，那是核心 fork（`Yrzhe/cloudflare-os` 的 `multiplayer`）那条线的事。
+- **widget 出网**：后端的 `globalOutbound` 是 `null`。要放开就得有一层能按域名收口的东西，在那之前
+  默认就是到不了公网——需要外部服务的 widget 让它的前端去调，那里适用部署自己的策略。
+- **widget 的源文件当普通文件**：widget 的文件不能被 comment、也不能 `copyFile()`。可见性得有唯一一个
+  说法，而 widget 就是那个单位。想聊，把要聊的东西作为普通文件写进 `shared/`。
+- **widget 的隔离到"另一个 origin"那种程度**：前端和这个部署同源，所以 CSP 划不出那道墙。真要划得给
+  widget 一个自己的 origin，那是部署形状的改动。
 - **实时协同编辑**：明确不做。这一层是 view → comment。官方用 Yjs 做 gadget 代码的实时编辑，文档没有
   走这条路。
-- **文件的 git 语义**：`moveFile()` / `copyFile()` 之外没有历史和分支。
+- **文件的 git 语义**：`moveFile()` / `copyFile()` 之外没有历史和分支。widget 也一样：
+  `setWidgetBackend()` 覆盖一次，上一版就没了。
+- **view → issue**：没做。
 - **URL 寻址的资源**：只提供一个单例的 `ProjectDirectory` binding，agent 通过 `listProjects()` 和
   `openProject()` 进去。做 URL 寻址要连带做 configurator UI，不值得。
 - **上传后的处理**：文件按原样存。PDF 之类只能做页级 comment，因为没有抽出文本。

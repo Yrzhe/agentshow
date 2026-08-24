@@ -70,6 +70,28 @@ export async function applyAction(
     case "deleteEnvVar":
       await context.store(action.projectId).deleteEnvVar(memberId, action.name);
       return;
+    case "createWidget":
+      await context.store(action.projectId).commitWidget(memberId, action.widget);
+      return;
+    case "writeWidgetFile":
+      await context.store(action.projectId).commitWidgetFile(memberId, action.write);
+      return;
+    case "moveWidget":
+      await context.store(action.projectId).moveWidget(memberId, action.widgetId, action.path);
+      return;
+    case "setWidgetVisibility":
+      await context.store(action.projectId).setWidgetVisibility(
+        memberId, action.widgetId, action.visibility);
+      return;
+    case "deleteWidget": {
+      // The store lives in a Durable Object of its own, so deleting the widget does not reach it.
+      // Emptied only once the project has agreed the widget is gone, and only then, because a
+      // refusal here must not have already thrown away what the widget was keeping.
+      const { deleted } = await context.store(action.projectId).deleteWidget(
+        memberId, action.widgetId);
+      if (deleted) await context.clearWidgetStore(action.projectId, action.widgetId);
+      return;
+    }
   }
 }
 
@@ -86,6 +108,7 @@ export async function rejectAction(
   action: PendingAction,
 ): Promise<void> {
   if (action.kind === "writeFile") await context.discardBytes(action.write.contentKey);
+  if (action.kind === "writeWidgetFile") await context.discardBytes(action.write.contentKey);
 }
 
 /** Undo an applied action, for the actions whose descriptions promised it could be undone. */
@@ -137,10 +160,36 @@ export async function revertAction(
       await context.store(action.projectId).setEnvVar(
         memberId, action.name, action.previous.value, action.previous.description);
       return;
+    case "createWidget": {
+      const { deleted } = await context.store(action.projectId).deleteWidget(
+        memberId, action.widget.widgetId);
+      if (deleted) await context.clearWidgetStore(action.projectId, action.widget.widgetId);
+      return;
+    }
+    case "writeWidgetFile":
+      // Only a file this write created, for the same reason a file write is: whatever it replaced
+      // is gone by now, and `implementsRevert` said as much when the action was submitted.
+      if (!action.created) {
+        throw new ProjectError(
+          `${action.write.path} in that widget was replaced, and the contents it replaced were ` +
+          `not kept.`);
+      }
+      await context.store(action.projectId).deleteWidgetFile(
+        memberId, action.write.widgetId, action.write.path);
+      return;
+    case "moveWidget":
+      await context.store(action.projectId).moveWidget(
+        memberId, action.widgetId, action.previousPath);
+      return;
+    case "setWidgetVisibility":
+      await context.store(action.projectId).setWidgetVisibility(
+        memberId, action.widgetId, action.previous);
+      return;
     case "createProject":
     case "joinProject":
     case "removeMember":
     case "deleteFile":
+    case "deleteWidget":
       throw new ProjectError(`A ${action.kind} action cannot be undone automatically.`);
   }
 }

@@ -111,9 +111,26 @@ class TestHost implements ProjectHost {
     return key;
   }
 
+  async stageWidgetBytes(
+    projectId: string,
+    widgetId: string,
+    path: string,
+    bytes: Uint8Array,
+  ): Promise<string> {
+    const key = `${projectId}/widgets/${widgetId}/${encodeURIComponent(path)}/${newId()}`;
+    await testEnv.PROJECT_FILES.put(key, bytes);
+    return key;
+  }
+
   async discardBytes(contentKey: string): Promise<void> {
     await testEnv.PROJECT_FILES.delete(contentKey);
   }
+
+  async clearWidgetStore(projectId: string, widgetId: string): Promise<void> {
+    this.clearedWidgetStores.push(`${projectId}/${widgetId}`);
+  }
+
+  readonly clearedWidgetStores: string[] = [];
 
   projectUrl(projectId: string): string {
     return `https://os.example.com/gatekeeper/project/p/${projectId}`;
@@ -121,6 +138,10 @@ class TestHost implements ProjectHost {
 
   fileUrl(projectId: string, fileId: string): string {
     return `https://os.example.com/gatekeeper/project/f/${projectId}/${fileId}`;
+  }
+
+  widgetUrl(projectId: string, widgetId: string): string {
+    return `https://os.example.com/gatekeeper/project/w/${projectId}/${widgetId}/`;
   }
 }
 
@@ -261,7 +282,11 @@ describe("what a human is asked to approve", () => {
     const offered = new Set(AUTO_APPROVABLE_KINDS.map((kind) => kind.tag));
     expect(offered).toEqual(new Set([
       ACTION_KINDS.writeOwnFile.tag, ACTION_KINDS.comment.tag, ACTION_KINDS.identity.tag,
+      ACTION_KINDS.widget.tag,
     ]));
+    // A widget's assets are on that list and its backend is deliberately not: the backend is code
+    // that runs with the project's shared configuration in its environment.
+    expect(offered.has(ACTION_KINDS.widgetCode.tag)).toBe(false);
     // Every tag is distinct, since a tag is what a saved rule matches on.
     const tags = Object.values(ACTION_KINDS).map((kind) => kind.tag);
     expect(new Set(tags).size).toBe(tags.length);
@@ -419,6 +444,215 @@ describe("observations", () => {
     // Listing them is a weaker read, and says so: names and descriptions, no contents.
     await workspace.listEnvVars();
     expect(alice.lastObservation.description.description).toMatch(/without their contents/);
+  });
+});
+
+describe("widgets", () => {
+  it("waits for a human before a widget exists, and before its files land", async () => {
+    const { alice, workspace } = await ownedProject();
+    const one = await workspace.createWidget({ name: "Dashboard", path: "shared/dashboard" });
+
+    expect(one).toMatchObject({ visibility: "project", writable: true, hasBackend: false });
+    expect(alice.last.description.title).toMatch(/Add the widget Dashboard/);
+    // An asset write is the member's own work, like writing one of their own files.
+    expect(alice.last.description.actionKind).toBe(ACTION_KINDS.widget);
+    expect(alice.last.description.autoApprovable).toBe(true);
+    expect(await workspace.listWidgets()).toEqual([]);
+
+    await alice.approve();
+    expect(await workspace.listWidgets()).toMatchObject([{ widgetId: one.widgetId }]);
+
+    await workspace.writeWidgetFile(one.widgetId, "index.html", "<h1>hi</h1>");
+    expect(alice.last.description.description).toMatch(/this is the file its address serves/);
+    await alice.approve();
+    expect(await workspace.listWidgetFiles(one.widgetId))
+      .toMatchObject([{ path: "index.html", mimeType: "text/html" }]);
+    expect(await workspace.readWidgetFile(one.widgetId, "index.html"))
+      .toMatchObject({ content: "<h1>hi</h1>" });
+  });
+
+  it("files a backend as code rather than as an asset, and says what it will run with", async () => {
+    const { alice, workspace } = await ownedProject();
+    const one = await workspace.createWidget({ name: "Dashboard", path: "shared/dashboard" });
+    await alice.approve();
+
+    // Writing it through the asset door is refused, so that what a person agrees to says "code".
+    await expect((async () =>
+      workspace.writeWidgetFile(one.widgetId, "backend.js", "export default {};"))())
+      .rejects.toThrow(/setWidgetBackend/);
+    await expect((async () =>
+      workspace.writeWidgetFile(one.widgetId, "api/todos.json", "[]"))())
+      .rejects.toThrow(/belongs to its backend/);
+
+    await workspace.setWidgetBackend(one.widgetId, "export default { async fetch() {} };");
+    expect(alice.last.description.actionKind).toBe(ACTION_KINDS.widgetCode);
+    // The one write in this whole gatekeeper that is never auto-approved.
+    expect(alice.last.description.autoApprovable).toBeFalsy();
+    expect(alice.last.description.title).toMatch(/Give the widget Dashboard a backend/);
+    expect(alice.last.description.description).toMatch(/This is code/);
+    expect(alice.last.description.description).toMatch(/no access to the internet/);
+    expect(alice.last.description.description).toMatch(/shared configuration values/);
+
+    await alice.approve();
+    expect(await workspace.listWidgets()).toMatchObject([{ hasBackend: true }]);
+  });
+
+  it("treats publishing a widget as sharing, and warns when it has a backend", async () => {
+    const { alice, workspace } = await ownedProject();
+    const one = await workspace.createWidget({ name: "Site", path: "shared/site" });
+    await alice.approve();
+    await workspace.setWidgetBackend(one.widgetId, "export default { async fetch() {} };");
+    await alice.approve();
+
+    await workspace.setWidgetVisibility(one.widgetId, "public");
+    expect(alice.last.description.actionKind).toBe(ACTION_KINDS.share);
+    expect(alice.last.description.autoApprovable).toBeFalsy();
+    // The consequence a person has to weigh: a public widget's backend still reads the project's
+    // shared configuration, so whatever it answers with is published too.
+    expect(alice.last.description.description).toMatch(/whether or not they are a member/);
+    expect(alice.last.description.description).toMatch(/read the project's shared[\s\n]+configuration/);
+    await alice.approve();
+
+    const link = await workspace.getWidgetLink(one.widgetId);
+    // Published, so the link is stable: there is nothing in it to expire.
+    expect(link.expires).toBe(null);
+    expect(link.url).toContain(one.widgetId);
+  });
+
+  it("reads a move as intent, and reveals nothing about a public widget", async () => {
+    const { alice, workspace, projectId } = await ownedProject();
+    const one = await workspace.createWidget({ name: "Tool", path: "alice/tool" });
+    await alice.approve();
+
+    // Out of private space and into the project's is sharing; a rename inside it is filing.
+    expect(await workspace.moveWidget(one.widgetId, "shared/tool"))
+      .toMatchObject({ visibility: "project" });
+    expect(alice.last.description.actionKind).toBe(ACTION_KINDS.share);
+    await alice.approve();
+    await workspace.moveWidget(one.widgetId, "shared/tool-v2");
+    expect(alice.last.description.actionKind).toBe(ACTION_KINDS.widget);
+    await alice.approve();
+
+    // A look at a widget registers the widget's own set, so a collaborator can be re-checked
+    // against it later -- unless it is public, which reveals nothing.
+    await workspace.listWidgetFiles(one.widgetId);
+    expect(alice.lastObservation.setIds).toEqual([`w:${projectId}:${one.widgetId}`]);
+    await workspace.setWidgetVisibility(one.widgetId, "public");
+    await alice.approve();
+    await workspace.listWidgetFiles(one.widgetId);
+    expect(alice.lastObservation.setIds).toEqual([]);
+  });
+
+  it("undoes a widget it created, and refuses to undo an overwrite", async () => {
+    const { alice, workspace, projectId } = await ownedProject();
+    const one = await workspace.createWidget({ name: "Dashboard", path: "shared/dashboard" });
+    await alice.approve();
+    await workspace.writeWidgetFile(one.widgetId, "index.html", "first");
+    await alice.approve();
+    const created = alice.submitted.length - 1;
+
+    await workspace.writeWidgetFile(one.widgetId, "index.html", "second");
+    // The bytes it replaced are gone by the time anybody could undo it, and the description said so.
+    expect(alice.last.description.implementsRevert).toBe(false);
+    await alice.approve();
+    await expect(alice.revert()).rejects.toThrow(/were not kept/);
+
+    // The write that created the file can be taken back.
+    await alice.revert(created);
+    expect(await workspace.listWidgetFiles(one.widgetId)).toEqual([]);
+
+    // And so can the widget itself, store and all.
+    await alice.revert(1);
+    expect(await workspace.listWidgets()).toEqual([]);
+    expect(alice.clearedWidgetStores).toContain(`${projectId}/${one.widgetId}`);
+  });
+
+  it("throws away the bytes of a widget file nobody agreed to", async () => {
+    const { alice, workspace } = await ownedProject();
+    const one = await workspace.createWidget({ name: "Dashboard", path: "shared/dashboard" });
+    await alice.approve();
+    await workspace.writeWidgetFile(one.widgetId, "index.html", "never approved");
+    const staged = alice.last.action as { write: { contentKey: string } };
+    expect(await testEnv.PROJECT_FILES.head(staged.write.contentKey)).not.toBe(null);
+
+    await alice.reject();
+    // Unreachable bytes still cost the deployment money, so they go now.
+    expect(await testEnv.PROJECT_FILES.head(staged.write.contentKey)).toBe(null);
+    expect(await workspace.listWidgetFiles(one.widgetId)).toEqual([]);
+  });
+
+  it("refuses a backend larger than one is meant to be", async () => {
+    const { alice, workspace } = await ownedProject();
+    const one = await workspace.createWidget({ name: "Dashboard", path: "shared/dashboard" });
+    await alice.approve();
+    await expect((async () =>
+      workspace.setWidgetBackend(one.widgetId, "x".repeat(200_000)))())
+      .rejects.toThrow(/may be at most/);
+    expect(alice.last.action.kind).toBe("createWidget");
+  });
+
+  it("deletes a widget as something that cannot be undone", async () => {
+    const { alice, workspace, projectId } = await ownedProject();
+    const one = await workspace.createWidget({ name: "Dashboard", path: "shared/dashboard" });
+    await alice.approve();
+
+    await workspace.deleteWidget(one.widgetId);
+    expect(alice.last.description.actionKind).toBe(ACTION_KINDS.destructive);
+    expect(alice.last.description.implementsRevert).toBe(false);
+    await alice.approve();
+    expect(await workspace.listWidgets()).toEqual([]);
+    // Its store lives in a Durable Object of its own, so deleting the widget has to reach it too.
+    expect(alice.clearedWidgetStores).toContain(`${projectId}/${one.widgetId}`);
+    await expect(alice.revert()).rejects.toThrow(/cannot be undone automatically/);
+  });
+});
+
+describe("someone else's widget", () => {
+  it("is readable, and refused before anything reaches the approval queue", async () => {
+    const owned = await ownedProject();
+    const invite = await owned.workspace.createInvite();
+    await owned.alice.approve();
+    const bob = new TestHost("bob", "Bob");
+    await directory(bob).joinProject(invite.code);
+    await bob.approve();
+
+    const one = await owned.workspace.createWidget({ name: "Dashboard", path: "shared/dashboard" });
+    await owned.alice.approve();
+    await owned.workspace.writeWidgetFile(one.widgetId, "index.html", "Alice's app");
+    await owned.alice.approve();
+
+    const bobsWorkspace = await directory(bob).openProject(owned.projectId);
+    expect(await bobsWorkspace.listWidgets()).toMatchObject([{ writable: false }]);
+    expect(await bobsWorkspace.readWidgetFile(one.widgetId, "index.html"))
+      .toMatchObject({ content: "Alice's app" });
+
+    const queued = bob.submitted.length;
+    for (const attempt of [
+      async () => bobsWorkspace.writeWidgetFile(one.widgetId, "index.html", "Bob's app"),
+      async () => bobsWorkspace.setWidgetBackend(one.widgetId, "export default {};"),
+      async () => bobsWorkspace.setWidgetVisibility(one.widgetId, "public"),
+      async () => bobsWorkspace.moveWidget(one.widgetId, "bob/dashboard"),
+    ]) {
+      await expect(attempt()).rejects.toThrow(/only its owner/);
+    }
+    // Nothing queued: an agent that cannot do this is told now, not after a human agrees.
+    expect(bob.submitted).toHaveLength(queued);
+  });
+
+  it("is invisible when it is private, even to a project owner", async () => {
+    const owned = await ownedProject();
+    const invite = await owned.workspace.createInvite();
+    await owned.alice.approve();
+    const bob = new TestHost("bob", "Bob");
+    await directory(bob).joinProject(invite.code);
+    await bob.approve();
+    const bobsWorkspace = await directory(bob).openProject(owned.projectId);
+
+    const bobs = await bobsWorkspace.createWidget({ name: "Bob's", path: "bob/private" });
+    await bob.approve();
+    expect(await owned.workspace.listWidgets()).toEqual([]);
+    await expect((async () => owned.workspace.getWidgetLink(bobs.widgetId))())
+      .rejects.toThrow(/does not exist, or is not shared with you/);
   });
 });
 

@@ -1,4 +1,7 @@
 // Bindings and Durable Object classes Wrangler's generated types cannot infer on their own.
+//
+// `WIDGET_LOADER` is deliberately absent: Wrangler does infer a `worker_loaders` binding from
+// `wrangler.jsonc`, so declaring it here as well would only give the two files a chance to disagree.
 
 declare namespace Cloudflare {
   interface Env {
@@ -13,6 +16,7 @@ declare namespace Cloudflare {
     durableNamespaces:
       | "ProjectDurableObject"
       | "MemberProjectsDurableObject"
+      | "WidgetStoreDurableObject"
       | "ProjectGatekeeper";
   }
 }

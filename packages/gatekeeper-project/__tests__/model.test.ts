@@ -12,7 +12,9 @@ import {
   inferMimeType,
   indexedText,
   isTextLike,
+  isWidgetBackendPath,
   normalizePath,
+  normalizeWidgetPath,
   parseAnchor,
   parseEnvVarName,
   parseInviteCode,
@@ -21,6 +23,11 @@ import {
   projectSet,
   snippet,
   visibilityAfterMove,
+  widgetAssetPath,
+  widgetContentSecurityPolicy,
+  widgetCookieName,
+  widgetSet,
+  widgetSets,
 } from "../src/model.js";
 import type { ProjectFileSummary } from "../src/types.js";
 
@@ -246,10 +253,70 @@ describe("observation sets", () => {
     ])).toEqual(["f:p1:b", "f:p1:c"]);
   });
 
+  it("names one widget, which narrows the same way a file does", () => {
+    expect(widgetSet("p1", "w1")).toBe("w:p1:w1");
+    expect(parseSet("w:p1:w1")).toEqual({ kind: "widget", projectId: "p1", widgetId: "w1" });
+    expect(widgetSets("p1", [
+      { widgetId: "a", visibility: "public" },
+      { widgetId: "b", visibility: "project" },
+      { widgetId: "c", visibility: "private" },
+    ])).toEqual(["w:p1:b", "w:p1:c"]);
+  });
+
   it("rejects a set id it did not mint", () => {
     expect(parseSet("p:")).toBe(null);
     expect(parseSet("f:p1")).toBe(null);
+    expect(parseSet("w:p1")).toBe(null);
     expect(parseSet("x:p1")).toBe(null);
+  });
+});
+
+describe("widget rules", () => {
+  it("reads a widget's path with the same rules a file's path gets", () => {
+    // Deliberately not a second set of rules: a member who knows who can read their files should
+    // not have to learn a different answer for who can open their widgets.
+    expect(defaultVisibility("shared/dashboard")).toBe("project");
+    expect(defaultVisibility("alice/scratch")).toBe("private");
+    expect(visibilityAfterMove("public", "alice/scratch")).toBe("public");
+    expect(visibilityAfterMove("project", "alice/scratch")).toBe("private");
+  });
+
+  it("keeps a widget's own api/ prefix free for its backend", () => {
+    expect(normalizeWidgetPath("/index.html")).toBe("index.html");
+    expect(normalizeWidgetPath("assets/app.js")).toBe("assets/app.js");
+    // A file stored under api/ would have an address nothing could ever reach, so it is refused
+    // here rather than discovered by loading a blank page.
+    expect(() => normalizeWidgetPath("api/todos.json")).toThrow(/belongs to its backend/);
+    expect(() => normalizeWidgetPath("api")).toThrow(ProjectError);
+    // And the file rules still hold underneath.
+    expect(() => normalizeWidgetPath("../escape.js")).toThrow(/may not contain/);
+    expect(() => normalizeWidgetPath("")).toThrow(ProjectError);
+    // `api` is only reserved as the first segment: it is the route, not a banned word.
+    expect(normalizeWidgetPath("assets/api/notes.json")).toBe("assets/api/notes.json");
+  });
+
+  it("names the one file in a widget that is code", () => {
+    expect(isWidgetBackendPath("backend.js")).toBe(true);
+    expect(isWidgetBackendPath("assets/backend.js")).toBe(false);
+    expect(widgetAssetPath("")).toBe("index.html");
+    expect(widgetAssetPath("assets/app.js")).toBe("assets/app.js");
+  });
+
+  it("gives a widget a policy it can run under, unlike a file preview", () => {
+    const policy = widgetContentSecurityPolicy("https://os.example.com/w/p1/w1/api/");
+    // The file route serves `default-src 'none'; sandbox`, which is right for a document nobody
+    // expects to run and fatal for an app.
+    expect(policy).not.toContain("sandbox");
+    expect(policy).toContain("default-src 'none'");
+    expect(policy).toContain("script-src 'self' 'unsafe-inline'");
+    expect(policy).toContain("connect-src 'self' https://os.example.com/w/p1/w1/api/");
+    expect(policy).toContain("base-uri 'none'");
+    expect(policy).toContain("form-action 'none'");
+  });
+
+  it("names a widget's cookie after the widget", () => {
+    expect(widgetCookieName("w1")).toBe("pw_w1");
+    expect(widgetCookieName("w2")).not.toBe(widgetCookieName("w1"));
   });
 });
 

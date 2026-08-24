@@ -10,6 +10,10 @@
   "compatibility_flags": ["allow_irrevocable_stub_storage", "nodejs_compat"],
 
   // DO classes are reached via ctx.exports; no durable_objects binding is needed.
+  //
+  // Additive only. A tag is a step forward from the one before it, so v0 keeps naming exactly the
+  // classes it named on the day it was applied -- every project and every file already stored keeps
+  // working -- and a class added later arrives in a tag of its own.
   "migrations": [
     {
       "tag": "v0",
@@ -18,11 +22,23 @@
         "MemberProjectsDurableObject",
         "ProjectGatekeeper"
       ]
+    },
+    {
+      // One store per widget, which is all a widget's backend may keep anything in.
+      "tag": "v1",
+      "new_sqlite_classes": ["WidgetStoreDurableObject"]
     }
   ],
 
-  // File bytes. Durable Object storage holds their metadata, which is small; the bytes are not.
+  // File bytes, widgets' files included. Durable Object storage holds their metadata, which is
+  // small; the bytes are not.
   "r2_buckets": [{ "binding": "PROJECT_FILES" }],
+
+  // How a widget's backend runs: a real Worker in its own isolate, built per widget from the module
+  // its owner wrote, with an env this Worker assembles and no way out to the network. Nothing is
+  // evaluated in this Worker's own scope, so a widget cannot reach this Worker's bindings.
+  // https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/
+  "worker_loaders": [{ "binding": "WIDGET_LOADER" }],
 
   "vars": {
     // Where this deployment answers, so a project or file link can be opened and pasted. Overwritten

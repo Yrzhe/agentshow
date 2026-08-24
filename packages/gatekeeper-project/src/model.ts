@@ -27,6 +27,27 @@ export const MAX_INDEXED_TEXT_BYTES = 64 * 1024;
 /** How long a signed link to a non-public file lasts. */
 export const LINK_LIFETIME_MS = 10 * 60 * 1000;
 
+/** The one file inside a widget that is code rather than an asset: its backend module. */
+export const WIDGET_BACKEND_PATH = "backend.js";
+
+/** What a widget serves when its address names no particular file. */
+export const WIDGET_INDEX_PATH = "index.html";
+
+/** Path segment under a widget reserved for its backend, so no asset may claim it. */
+export const WIDGET_API_PREFIX = "api";
+
+/** Largest backend module we will hand to an isolate. A widget's backend is glue, not a bundle. */
+export const MAX_WIDGET_BACKEND_BYTES = 128 * 1024;
+
+/** How long a widget's backend has to answer one request before it is abandoned. */
+export const WIDGET_BACKEND_TIMEOUT_MS = 10 * 1000;
+
+/** Largest request body a widget's backend is handed. Buffered here, so the cap holds. */
+export const MAX_WIDGET_REQUEST_BYTES = 1024 * 1024;
+
+/** Names a widget's environment always defines itself, whatever the project calls its own values. */
+export const RESERVED_WIDGET_ENV_NAMES: readonly string[] = ["WIDGET", "STORE"];
+
 /** Limits on what one project may hold. Raising them is a deployment decision. */
 export interface ProjectQuota {
   /** Largest single file, in bytes. */
@@ -164,6 +185,93 @@ export function canWrite(ownerId: string, memberId: string): boolean {
 /** Whether `member` may delete a file. Its owner may; a project owner may, to moderate. */
 export function canDelete(ownerId: string, member: { memberId: string; role: ProjectRole }): boolean {
   return ownerId === member.memberId || member.role === "owner";
+}
+
+// ---------------------------------------------------------------------------
+// Widgets
+//
+// A widget is a mini app a member publishes into a project: static files plus an optional backend
+// module. It reuses the file rules above rather than bringing its own -- the same three
+// visibilities, the same path-is-intent default, the same owner-only writes -- because a member who
+// understands who can read their files should not have to learn a second answer for who can open
+// their widgets. What is new here is only what a widget has that a file does not: an address space
+// of its own, and code.
+
+/**
+ * Who a widget's frontend and backend are answering.
+ *
+ * `public` is the absence of a capability rather than a capability of its own, which is exactly why
+ * a public widget's link can be stable: there is nothing in it to expire.
+ */
+export type WidgetPrincipal =
+  | { kind: "member"; memberId: string; role: ProjectRole }
+  | { kind: "public" };
+
+/**
+ * A path inside a widget, as the widget stores it.
+ *
+ * Rejects `api/...` because that prefix is the widget's backend route: an asset stored there would
+ * have an address nothing could reach, and finding that out by loading a blank page is worse than
+ * being told here.
+ */
+export function normalizeWidgetPath(input: unknown): string {
+  const path = normalizePath(input);
+  if (path === WIDGET_API_PREFIX || path.startsWith(`${WIDGET_API_PREFIX}/`)) {
+    throw new ProjectError(
+      `A widget's ${WIDGET_API_PREFIX}/ path belongs to its backend, so no file may be stored ` +
+      `there. Put the file somewhere else and let ${WIDGET_BACKEND_PATH} answer ` +
+      `${WIDGET_API_PREFIX}/ requests.`);
+  }
+  return path;
+}
+
+/** Whether `path` names the one file inside a widget that runs as code. */
+export function isWidgetBackendPath(path: string): boolean {
+  return path === WIDGET_BACKEND_PATH;
+}
+
+/** The file a widget request resolves to: its index when the address names no file. */
+export function widgetAssetPath(assetPath: string): string {
+  return assetPath === "" ? WIDGET_INDEX_PATH : assetPath;
+}
+
+/**
+ * What a browser may do with a widget's frontend.
+ *
+ * Deliberately not the file-preview policy. That one is `default-src 'none'; sandbox`, which is
+ * right for a document nobody expects to run and fatal for an app: a widget has to execute its own
+ * script or there is no widget. So the policy here says which powers it gets rather than none of
+ * them, and `connect-src` names the widget's own backend, which is all the app should need.
+ *
+ * `'self'` is in `connect-src` as well because the widget is served from the deployment's own
+ * origin and fetches its assets by relative URL. That also means CSP is not the wall between a
+ * widget and the rest of the deployment -- same-origin never is. What keeps a widget's reach narrow
+ * is the route, the path-scoped cookie, and the fact that its backend runs in an isolate with
+ * nothing in it but what the widget was given.
+ */
+export function widgetContentSecurityPolicy(apiUrl: string): string {
+  return [
+    "default-src 'none'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    `connect-src 'self' ${apiUrl}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'self'",
+  ].join("; ");
+}
+
+/**
+ * The cookie a widget's own requests carry, scoped to that widget's path.
+ *
+ * Named per widget as well as scoped per widget: the path is what stops the browser sending it
+ * anywhere else, and the name is what stops two widgets' cookies being mistaken for each other if a
+ * deployment ever widens that path.
+ */
+export function widgetCookieName(widgetId: string): string {
+  return `pw_${widgetId}`;
 }
 
 const TEXT_EXTENSIONS: Record<string, string> = {
@@ -362,9 +470,10 @@ export function snippet(text: string, query: string, radius = 120): string {
 /**
  * The data set an observation reveals, in the form `addObserver()` re-checks later.
  *
- * Two shapes, both naming the project so the verifier can find it: `p:<project>` for anything every
- * member may read, and `f:<project>:<file>` for one file, whose visibility may since have narrowed.
- * A public file reveals nothing, since there is no one to keep it from.
+ * Three shapes, all naming the project so the verifier can find it: `p:<project>` for anything every
+ * member may read, `f:<project>:<file>` for one file, whose visibility may since have narrowed, and
+ * `w:<project>:<widget>` for one widget, which narrows the same way. A public file or widget reveals
+ * nothing, since there is no one to keep it from.
  */
 export function projectSet(projectId: string): string {
   return `p:${projectId}`;
@@ -372,6 +481,10 @@ export function projectSet(projectId: string): string {
 
 export function fileSet(projectId: string, fileId: string): string {
   return `f:${projectId}:${fileId}`;
+}
+
+export function widgetSet(projectId: string, widgetId: string): string {
+  return `w:${projectId}:${widgetId}`;
 }
 
 /** Sets revealed by handing back these files. */
@@ -383,9 +496,22 @@ export function fileSets(projectId: string, files: readonly ProjectFileSummary[]
   return [...sets];
 }
 
+/** Sets revealed by handing back these widgets. */
+export function widgetSets(
+  projectId: string,
+  widgets: readonly { widgetId: string; visibility: ProjectFileVisibility }[],
+): string[] {
+  const sets = new Set<string>();
+  for (const widget of widgets) {
+    if (widget.visibility !== "public") sets.add(widgetSet(projectId, widget.widgetId));
+  }
+  return [...sets];
+}
+
 export type ParsedSet =
   | { kind: "project"; projectId: string }
-  | { kind: "file"; projectId: string; fileId: string };
+  | { kind: "file"; projectId: string; fileId: string }
+  | { kind: "widget"; projectId: string; widgetId: string };
 
 export function parseSet(setId: string): ParsedSet | null {
   const parts = setId.split(":");
@@ -394,6 +520,9 @@ export function parseSet(setId: string): ParsedSet | null {
   }
   if (parts[0] === "f" && parts.length === 3 && parts[1] && parts[2]) {
     return { kind: "file", projectId: parts[1], fileId: parts[2] };
+  }
+  if (parts[0] === "w" && parts.length === 3 && parts[1] && parts[2]) {
+    return { kind: "widget", projectId: parts[1], widgetId: parts[2] };
   }
   return null;
 }
