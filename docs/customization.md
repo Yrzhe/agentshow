@@ -50,7 +50,7 @@ The deployment is seven Workers. Keep their names unique: service bindings use t
 | `workshop` | The Cloudflare OS backend, holding all user data in Durable Objects. |
 | `context` | The Context Gatekeeper. |
 | `scheduler` | The Scheduler Gatekeeper, which gives agents scheduled and recurring work. |
-| `project` | The Project Gatekeeper: shared files, comments, skills, settings and widgets for a team whose members each keep their own chats. Widgets run their backends through a Worker Loader, so this Worker needs [Dynamic Worker Loaders](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) on the account. See the [collaboration design](collaboration.md). |
+| `project` | The Project Gatekeeper: shared files, comments, skills, settings and widgets for a team whose members each keep their own chats. Widgets serve their files and persist data through a built-in `api/store` with no account feature required; letting one run a `backend.js` of its own is `project.widgetBackends`, which adds a Worker Loader binding and so needs [Dynamic Worker Loaders](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) on the account. See the [collaboration design](collaboration.md). |
 | `customGatekeeper` | This repository's example integration. |
 | `errorReporter` | The private explicit-issue destination. |
 

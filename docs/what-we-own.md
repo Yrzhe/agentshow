@@ -20,8 +20,9 @@ comment、skill、环境变量、widget 全在那里，chat 一点都不碰。�
 数据和权限都留在这个 Gatekeeper 里，不往核心搬——它自己就是 project 的鉴权边界，每个方法都带调用者的
 member id。
 
-widget（project 里的 mini app）也整个在这里：它的前后端由这个 Worker 自己的 fetch handler 提供，后端跑
-在 Worker Loader 起的 isolate 里。它现在只有一个自己的地址，**没有**动左侧导航或任何官方 UI。
+widget（project 里的 mini app）也整个在这里：它的前端、它内置的 `api/store`，都由这个 Worker 自己的
+fetch handler 提供；自己写的 `backend.js` 跑在 Worker Loader 起的 isolate 里，而那个 binding 是可选的。
+它现在只有一个自己的地址，**没有**动左侧导航或任何官方 UI。
 
 ## 核心只做界面入口
 

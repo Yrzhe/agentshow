@@ -40,7 +40,7 @@ widget 现在**没有**挂进任何面板：`getWidgetLink()` 给的是一个在
 | project 的成员、文件元数据、comment、环境变量、widget 元数据 | 每个 project 一个 `ProjectDurableObject`（SQLite） | 一个 project 就是一个一致性边界，权限判断全在这一个地方 |
 | 文件字节，widget 的文件也在内 | R2（`PROJECT_FILES`），widget 的走 `…/widgets/` 前缀 | DO 存储单值上限 2 MB，装不下文档 |
 | 某个人加入了哪些 project | 每个账号一个 `MemberProjectsDurableObject` | 列自己的 project 不用去问每一个 project |
-| 一个 widget 的后端存的东西 | 每个 widget 一个 `WidgetStoreDurableObject` | 后端是成员写的代码，它能拿到的只该是属于这一个 widget 的那点存储 |
+| 一个 widget 存的东西 | 每个 widget 一个 `WidgetStoreDurableObject` | 一个 widget 能碰到的存储只该是属于它自己的那一点。它自己的前端通过 `api/store` 用它，它自己写的后端通过 `env.STORE` 用它，两条路进的是同一个对象 |
 | 待审批的动作 | `ProjectGatekeeper` facet 自己的存储 | 审批是个人的事，不该让别人看见你在等什么 |
 
 widget 的两张表（`widgets`、`widget_files`）和其它表一样是 `CREATE TABLE IF NOT EXISTS`，**只增不改**：
@@ -167,8 +167,10 @@ owner 把它改回 private 之后就通不过了。
 
 ## widget：project 里的 mini app
 
-**widget 是一个成员发布到 project 里的小应用**：一个 `index.html` 加上它需要的静态文件，外加一个可选
-的 `backend.js`。打开它的链接就是在浏览器里跑它。
+**widget 是一个成员发布到 project 里的小应用**：一个 `index.html` 加上它需要的静态文件。打开它的链接
+就是在浏览器里跑它。只有 `index.html` 的 widget 就是一个完整的 widget，**存数据也不用写后端**——它自己
+的 `api/store` 就是它的存储（见下面「[`api/`：不写后端也有一个 store](#api不写后端也有一个-store)」）。
+想要真的跑自己的服务端逻辑，再写一个可选的 `backend.js`。
 
 它不是官方的 Gadget。把人加进一个 gadget 等于共用一条 chat；widget 分享的是**应用**，不是 chat。它也
 不是 skill——skill 是给 agent 读的说明书，widget 是给人点开的东西。一个 widget 可以**用** project 的
@@ -202,8 +204,9 @@ widget"。
 ### 地址
 
 ```
-/gatekeeper/project/w/<projectId>/<widgetId>/…      前端文件
-/gatekeeper/project/w/<projectId>/<widgetId>/api/…  后端
+/gatekeeper/project/w/<projectId>/<widgetId>/…            前端文件
+/gatekeeper/project/w/<projectId>/<widgetId>/api/store/…  内置的 store（没有 backend.js 时）
+/gatekeeper/project/w/<projectId>/<widgetId>/api/…        自己写的后端（有 backend.js 时，整个 api/ 都归它）
 ```
 
 widget 的地址**以斜杠结尾**，因为 widget 是个目录而不是一篇文档：`index.html` 里写 `app.js` 是相对当
@@ -258,14 +261,67 @@ URL 取自己的文件。真正让 widget 的伸手范围有限的是另外三�
 token 里带着 widgetId，所以一个 widget 的 cookie 拿到另一个 widget 上是无效的——两者是同一个 project
 key 签的，payload 里的 widgetId 就是唯一把它们分开的东西。cookie 名字也按 widget 区分。
 
+### `api/`：不写后端也有一个 store
+
+一个只想记住点东西的 widget——一份清单、一个草稿、一个分数——以前必须写 `backend.js`。那意味着两件事：
+账号上得有 Dynamic Worker Loaders，以及**每次改这个模块都要有人点头**（`project.widget-code` 明确不在
+自动批准名单里，见下面）。这两个代价对"跑成员自己写的代码"来说是对的，对"一个下一个人打开还看得见的
+localStorage"来说完全不对。
+
+所以**没有 `backend.js` 的 widget，它的 `api/store` 由这个 Worker 自己回答**，后面接的就是那个本来会
+交给后端的 `WidgetStoreDurableObject`：
+
+```
+GET    api/store?prefix=&limit=   → { entries: [{ key, value }] }
+GET    api/store/<key>            → { key, value }，没有就是 404
+PUT    api/store/<key>            ← 请求体原样存成 value
+DELETE api/store/<key>            → 204，key 本来在不在都一样
+```
+
+前端就是这么用的，一行服务端代码都不用写：
+
+```js
+await fetch("api/store/draft", { method: "PUT", body: JSON.stringify(draft) });
+const { value } = await (await fetch("api/store/draft")).json();
+const { entries } = await (await fetch("api/store?prefix=note/")).json();
+```
+
+**value 就是请求体本身，没有信封。** 另一种设计是 `{ "value": "…" }`，它在 curl 例子里好看，在别的地
+方都更糟：一个存 JSON 的 widget 得去猜自己那个对象有没有被拆开一层，而答案取决于一个它未必控制得了的
+content-type。`PUT` 一个字符串，`GET` 回来同一个字符串。key 里可以带斜杠（`note/a`、`note%2Fa` 是同一
+个 key），所以 widget 可以自己给 key 分命名空间。单个 value 上限 128 KiB，一个 widget 上限 1000 个 key。
+
+要说清楚的几件事：
+
+- **认证、CSP、cookie 续期和前端那条路一模一样**，不是另一套。每个请求都重新判定谁在问（下面「认证」那
+  节说的三个问题），答案一变立刻关门。走的是同一个 `openWidgetApi()`。
+- **public widget 的 store 就是 public 的。** 能打开这个 widget 的人就能读写它记住的东西——这和一个
+  public 的后端本来会有的规则是同一条。`setWidgetVisibility()` 的审批描述里明说了这件事。
+- **只有这一个 widget 自己的 store。** 不是 project 的文件，不是另一个 widget 的 store，也**不是
+  project 的环境变量**。后端能读环境变量，是因为后端是成员写的、而且有人批过；这条路上没有任何人写过
+  的代码，所以它一个值都不该交出去。`openWidgetApi()` 里那些值是**只在真的有模块要跑的时候才去读的**,
+  没有模块时它们根本不会出现在返回值里。
+- **`api/` 下面别的路径是 404**，而且那个 404 会写明这个 widget 只答 `api/store`。默默把 store 的列表
+  返回给一个请求 `api/notes` 的 widget 更糟。
+- **有 `backend.js` 的时候，整个 `api/` 都归它**，`api/store` 也一样。两样东西答同一个地址，等于这个路
+  由的行为取决于一个调用方看不见的文件。后端通过 `env.STORE` 拿到的是同一个对象，所以加上或者删掉
+  `backend.js`，存着的东西一个都不会丢。
+
 ### 后端能看见什么
 
-`backend.js` 是一个普通的 Worker 模块（`export default { async fetch(request, env) { … } }`）。
+`backend.js` 是一个普通的 Worker 模块（`export default { async fetch(request, env) { … } }`）。它不是
+默认那条路，而是 widget 需要浏览器不能被信任的那种逻辑时才写的东西：一条"谁能改什么"的规则、一个从
+project 环境变量里算出来的值、一个前端不能绕过的检查。
 
-**跑法是真的 isolate**，不是 `eval`。这个 pin 已经有 Worker Loader（`worker_loaders` binding，
-`deployment.jsonc` 那份账号要求里本来就列着 Dynamic Worker Loaders），所以模块是作为一个真正的 Worker
-加载起来的，`env` 由这个 Worker 亲手拼出来。**没有任何东西在这个 Worker 自己的作用域里被求值**，所以
-widget 写什么都碰不到这个 Worker 的 binding。没有用 Cloudflare Sandbox 或 Containers。
+**跑法是真的 isolate**，不是 `eval`。模块是通过 `WIDGET_LOADER` 这个 Worker Loader binding 作为一个真
+正的 Worker 加载起来的，`env` 由这个 Worker 亲手拼出来。**没有任何东西在这个 Worker 自己的作用域里被
+求值**，所以 widget 写什么都碰不到这个 Worker 的 binding。没有用 Cloudflare Sandbox 或 Containers。
+
+**这个 binding 是可选的。** Dynamic Worker Loaders 是账号级的功能，而一个 wrangler 建不出来的 binding
+不是"少个功能"，是"deploy 直接失败"。所以 `packages/gatekeeper-project/wrangler.jsonc` 里**没有**
+`worker_loaders`，要不要加由 `deployment.jsonc` 的 `project.widgetBackends` 决定（默认 `false`），
+`scripts/deploy.ts` 据此往生成的配置里加。没有它的部署里，widget 的前端和 `api/store` 一切照旧，只有
+带着 `backend.js` 的 widget 会拿到一个 **501**，而且那句话里写着少的是什么、还剩什么能用。
 
 `env` 里就三类东西：
 
@@ -273,7 +329,7 @@ widget 写什么都碰不到这个 Worker 的 binding。没有用 Cloudflare San
 | --- | --- |
 | project 的环境变量 | **带值**，不只是名字。这是共享 skill 或 widget 能对所有人跑起来的前提 |
 | `WIDGET` | `{ projectId, widgetId, principal }`，`principal` 是 `{ kind: "member", memberId, role }` 或 `{ kind: "public" }` |
-| `STORE` | 只属于这一个 widget 的 KV，`get` / `put` / `delete` / `list`。一个 widget 一个 Durable Object |
+| `STORE` | 只属于这一个 widget 的 KV，`get` / `put` / `delete` / `list`。一个 widget 一个 Durable Object，和 `api/store` 后面的是同一个 |
 
 `WIDGET` 和 `STORE` 是保留名：project 要是刚好有同名的环境变量，它不会覆盖掉"谁在问"这个 binding。
 
@@ -309,10 +365,15 @@ action kind 分两个是故意的：
 
 - `project.widget`——建一个 widget、写它的静态文件。和"写自己的文件"是同一种事，**在自动批准名单里**。
 - `project.widget-code`——写 `backend.js`。这是**代码**，会带着 project 的环境变量跑、回答任何能打开这
-  个 widget 的人。**明确不在自动批准名单里**，这是整个 gatekeeper 里唯一一个人必须看一眼的写操作。
+  个 widget 的人，而且会接管本来在答 `api/store` 的那条内置路由。**明确不在自动批准名单里**，这是整个
+  gatekeeper 里唯一一个人必须看一眼的写操作。
 
 所以 `writeWidgetFile()` 会拒绝 `backend.js`，让你去用 `setWidgetBackend()`：不是为了多一个方法，而是
 为了让人点头的那段描述里写着"这是代码"。
+
+这个分界也是 `api/store` 存在的理由。存东西这件事现在落在**自动批准**的那一半里：写 `index.html` 是
+`project.widget`，而那个 widget 从此就能记住东西了。**只有在 widget 真的要跑自己的代码时，才需要有人
+点头**——而不是每次它想记住一份草稿的时候。
 
 widget 的源文件没有做成普通的 project 文件（也就是说，它们不能被 comment、不能 `copyFile()`）。理由是
 **可见性得有唯一一个说法**：widget 是可见性的单位，如果它的每个文件各有一个可见性，"谁能打开这个
@@ -324,6 +385,10 @@ widget 的字节**算进 project 现有的配额**，和文件同一个额度：
 文档的字节花的是一样的钱，分成两个额度等于白送一份没人批准过的配额。文件数也一起算。
 
 覆盖 widget 里的一个文件同样只按差额计费。
+
+widget **store 里的东西不算在这个额度里**，它有自己的一套上限（单个 value 128 KiB、一个 widget 1000
+个 key）。理由是它落在别的地方：文件字节在 R2，按 project 记总数；store 在每个 widget 自己的 Durable
+Object 里，那个上限就在 `widget-store.ts` 里写着。
 
 ## 配额（付费点）
 
@@ -345,9 +410,17 @@ widget 的字节**算进 project 现有的配额**，和文件同一个额度：
 "project": {
   "sharingDomain": null,          // null 用公开 origin
   "filesBucket": null,            // null 让 wrangler 自动开一个
+  "widgetBackends": false,        // true 才加 WIDGET_LOADER，需要账号有 Dynamic Worker Loaders
   "limits": { /* 见上表 */ }
 }
 ```
+
+`widgetBackends` 默认 `false`，而 `false` 是一个**完整**的部署而不是残缺的那个：widget 照样发前端、照样
+通过 `api/store` 存数据。它 `true` 的时候多出来的是"跑成员自己写的 `backend.js`"，代价是账号上得有
+[Dynamic Worker Loaders](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/)。
+没有那个访问权限却把它打开，结果是 deploy 直接失败，而不是 widget 悄悄不对劲。
+
+**明确不需要 Workers for Platforms。** 内置的 store 就是这个 Worker 自己回答的一条路由。
 
 `sharingDomain` 隔离的是"哪些 project 属于这个部署"，和 `context.sharingDomain` 是同一种东西。**改
 它的唯一后果是安静的**：现有的 project 一个都不会消失，但一个都看不见了。如果这个部署的公开 origin
