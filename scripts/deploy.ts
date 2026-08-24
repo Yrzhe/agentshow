@@ -429,6 +429,14 @@ function validateProject(config: DeploymentConfig): void {
       "deployment's public origin, the same way context.sharingDomain scopes Context data.");
   }
 
+  const widgetBackends = project.widgetBackends;
+  if (widgetBackends !== undefined && typeof widgetBackends !== "boolean") {
+    throw new Error(
+      "project.widgetBackends must be true or false. It adds the Worker Loader binding a widget's " +
+      "own backend.js runs in, which needs Dynamic Worker Loaders on the account; leaving it off " +
+      "still gives every widget its files and its built-in api/store.");
+  }
+
   const limits = project.limits;
   if (limits !== undefined && (limits === null || typeof limits !== "object" ||
       Array.isArray(limits))) {
@@ -643,6 +651,15 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
     { binding: "PROJECT_FILES", ...(config.project.filesBucket
       ? { bucket_name: config.project.filesBucket } : {}) },
   ];
+  // Added only when asked for, and absent by default. Widgets keep their files and their built-in
+  // api/store without it; what it buys is running a member's own backend.js in an isolate, which
+  // needs Dynamic Worker Loaders on the account. Emitting it unconditionally would make an account
+  // feature into a hard requirement for deploying the Project Gatekeeper at all.
+  if (config.project.widgetBackends) {
+    project.worker_loaders = [{ binding: "WIDGET_LOADER" }];
+  } else {
+    delete project.worker_loaders;
+  }
 
   setCommon(customGatekeeper, config, config.workers.customGatekeeper.name);
   customGatekeeper.vars = {

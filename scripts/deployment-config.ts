@@ -107,6 +107,17 @@ export interface ProjectConfig {
   sharingDomain: string | null;
   /** Existing R2 bucket for file bytes, or `null` for Wrangler automatic provisioning. */
   filesBucket: string | null;
+  /**
+   * Whether widgets may run a `backend.js` of their own, which needs a Worker Loader binding.
+   *
+   * Off by default, and off is a working deployment rather than a reduced one: widgets serve their
+   * files and persist data through their built-in `api/store` either way. What the binding adds is
+   * the ability to run a member-written module, and what it costs is
+   * [Dynamic Worker Loaders](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/)
+   * on the account -- an account feature, so a deployment that turns this on without it gets a
+   * deploy that fails rather than a widget that misbehaves.
+   */
+  widgetBackends?: boolean;
   /** Per-project quotas. Absent keeps the Worker's own defaults. */
   limits?: ProjectLimitsConfig;
 }
@@ -206,6 +217,11 @@ export type ProdWranglerConfig =
     secrets?: { required: string[] };
     /** Artifacts namespaces. An array, unlike upstream's single-binding declaration. */
     artifacts?: { binding: string; namespace: string }[];
+    /**
+     * Worker Loader bindings. Emitted only for a deployment that asked for widget backends, since
+     * the binding needs Dynamic Worker Loaders on the account.
+     */
+    worker_loaders?: BindingDecl[];
   };
 
 /** The generated configs, keyed as `deployment.jsonc` keys them. */
