@@ -1,0 +1,42 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "email-code-idp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // DO classes are reached via ctx.exports; no durable_objects binding is needed.
+  //
+  // Additive only, as everywhere else in this repository: a tag names exactly the classes it named
+  // on the day it was applied, and a class added later arrives in a tag of its own.
+  "migrations": [
+    {
+      "tag": "v0",
+      "new_sqlite_classes": ["LoginSession", "AuthCode", "EmailThrottle", "SigningKey"]
+    }
+  ],
+
+  // Every value here is a placeholder for local development. scripts/deploy.ts overwrites all of
+  // them from deployment.jsonc, and the two secrets are never written to a file at all --
+  // IDP_CLIENT_SECRET and IDP_MAIL_API_KEY are installed with `wrangler secret put`.
+  "vars": {
+    "IDP_ISSUER": "http://localhost:8788",
+    "IDP_BRAND": "Cloudflare OS",
+    "IDP_CLIENT_ID": "local-development",
+    "IDP_REDIRECT_URI": "http://localhost:8788/callback",
+    // Local development only. A deployment says who may sign in; "*" here would be an open mailer.
+    "IDP_ALLOWED_EMAILS": "@example.com",
+    "IDP_MAIL_FROM": "Cloudflare OS <login@example.com>",
+    "IDP_CODE_TTL_SECONDS": "600",
+    "IDP_MAX_ATTEMPTS": "5",
+    "IDP_MAX_SENDS_PER_SESSION": "3",
+    "IDP_MAX_SENDS_PER_EMAIL": "5",
+    "IDP_SEND_WINDOW_SECONDS": "3600"
+  },
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "invocation_logs": false }
+  }
+}
