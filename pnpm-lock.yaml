@@ -10,11 +10,11 @@ catalogs:
       specifier: ^0.20.2
       version: 0.20.3
     capnweb:
-      specifier: ^0.11.1
-      version: 0.11.1
+      specifier: ^0.12.0
+      version: 0.12.0
     capnweb-validate:
-      specifier: 0.2.4
-      version: 0.2.4
+      specifier: 0.3.0
+      version: 0.3.0
     typescript:
       specifier: 7.0.2
       version: 7.0.2
@@ -72,9 +72,15 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20260808.1
         version: 5.20260818.1
+      '@codemirror/state':
+        specifier: ^6.7.1
+        version: 6.7.1
       capnweb:
         specifier: 'catalog:'
-        version: 0.11.1
+        version: 0.12.0
+      fast-diff:
+        specifier: ^1.3.0
+        version: 1.3.0
     devDependencies:
       typescript:
         specifier: 'catalog:'
@@ -87,10 +93,10 @@ importers:
         version: link:../../cloudflare-os/packages/workshop-shared
       capnweb:
         specifier: 'catalog:'
-        version: 0.11.1
+        version: 0.12.0
       capnweb-validate:
         specifier: 'catalog:'
-        version: 0.2.4(capnweb@0.11.1)(esbuild@0.28.1)(rolldown@1.2.2)(rollup@4.62.4)(vite@7.3.6(@types/node@26.1.0)(lightningcss@1.33.0))
+        version: 0.3.0(capnweb@0.12.0)(esbuild@0.28.1)(rolldown@1.2.2)(rollup@4.62.4)(vite@7.3.6(@types/node@26.1.0)(lightningcss@1.33.0))
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 'catalog:'
@@ -137,10 +143,10 @@ importers:
         version: link:../../cloudflare-os/packages/workshop-shared
       capnweb:
         specifier: 'catalog:'
-        version: 0.11.1
+        version: 0.12.0
       capnweb-validate:
         specifier: 'catalog:'
-        version: 0.2.4(capnweb@0.11.1)(esbuild@0.28.1)(rolldown@1.2.2)(rollup@4.62.4)(vite@7.3.6(@types/node@26.1.0)(lightningcss@1.33.0))
+        version: 0.3.0(capnweb@0.12.0)(esbuild@0.28.1)(rolldown@1.2.2)(rollup@4.62.4)(vite@7.3.6(@types/node@26.1.0)(lightningcss@1.33.0))
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 'catalog:'
@@ -260,6 +266,9 @@ packages:
 
   '@cloudflare/workers-types@5.20260818.1':
     resolution: {integrity: sha512-a89taQDbqb7Ni+xAVSsiOSd5wQPcbBJBnZgIG3EujVdDcdQkGVwab3xa2e9z29uqtMQb/P2gYDeDcNXcBRSWQQ==}
+
+  '@codemirror/state@6.7.1':
+    resolution: {integrity: sha512-9QzNDgE4EYDnAHfrTlR2lwiPciiOymLtwKK+8yHQzCc7GXhAP9xdEbEJFy2IWB1j9UGUl9BsgMmTo/ImA02T7A==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -604,6 +613,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
+
+  '@marijn/find-cluster-break@1.0.4':
+    resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     resolution: {integrity: sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ==}
@@ -1589,8 +1601,8 @@ packages:
   blake3-wasm@2.1.5:
     resolution: {integrity: sha512-F1+K8EbfOZE49dtoPtmxUQrpXaBIl3ICvasLh+nJta0xkz+9kF/7uet9fLnwKqhDrmj6g+6K3Tw9yQPUg2ka5g==}
 
-  capnweb-validate@0.2.4:
-    resolution: {integrity: sha512-1E1OqJZ96P/YE1WbhnPHGs8hvZ1g2Da7f/DJSgxGQ6aKy17bjkJa9sEhTixQKJ0VsNRIdmeEjFE3brBlXcF/Uw==}
+  capnweb-validate@0.3.0:
+    resolution: {integrity: sha512-YjYu37+WE/cQWNM39Hv9sjov9fDgHIT/142ZD5pdt4iXk0YQqXg3FGgn5I3bg2ytQMJMsQQsnfooEKwnqc2E3A==}
     hasBin: true
     peerDependencies:
       capnweb: '>=0.7.0'
@@ -1598,8 +1610,8 @@ packages:
       capnweb:
         optional: true
 
-  capnweb@0.11.1:
-    resolution: {integrity: sha512-7LyJhH96Ak7qyM3nUShVP5noXRMav2TvnhZ+hDxANrNqkFaPcu9MkbMIKTvBGV8+HN44kKTDlNMHzjPDRr36KQ==}
+  capnweb@0.12.0:
+    resolution: {integrity: sha512-jgZ/LMtMVTi+RVlooIslH78Gg23XbDTdvcLghWx3oz17D6u5GuJARt+uhZk/wcTo+f81eeabfnow4d3zLBj+JQ==}
 
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
@@ -1643,6 +1655,9 @@ packages:
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
+
+  fast-diff@1.3.0:
+    resolution: {integrity: sha512-VxPP4NqbUjj6MaAOafWeUn2cXWLcCtljklUtZf0Ind4XQ+QPtmA0b18zZy0jIQx+ExRVCR/ZQpBmik5lXshNsw==}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -2181,6 +2196,10 @@ snapshots:
 
   '@cloudflare/workers-types@5.20260818.1': {}
 
+  '@codemirror/state@6.7.1':
+    dependencies:
+      '@marijn/find-cluster-break': 1.0.4
+
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
@@ -2397,6 +2416,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@marijn/find-cluster-break@1.0.4': {}
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
@@ -2968,12 +2989,12 @@ snapshots:
 
   blake3-wasm@2.1.5: {}
 
-  capnweb-validate@0.2.4(capnweb@0.11.1)(esbuild@0.28.1)(rolldown@1.2.2)(rollup@4.62.4)(vite@7.3.6(@types/node@26.1.0)(lightningcss@1.33.0)):
+  capnweb-validate@0.3.0(capnweb@0.12.0)(esbuild@0.28.1)(rolldown@1.2.2)(rollup@4.62.4)(vite@7.3.6(@types/node@26.1.0)(lightningcss@1.33.0)):
     dependencies:
       typescript: 5.9.3
       unplugin: 3.3.0(esbuild@0.28.1)(rolldown@1.2.2)(rollup@4.62.4)(vite@7.3.6(@types/node@26.1.0)(lightningcss@1.33.0))
     optionalDependencies:
-      capnweb: 0.11.1
+      capnweb: 0.12.0
     transitivePeerDependencies:
       - '@farmfe/core'
       - '@rspack/core'
@@ -2985,7 +3006,7 @@ snapshots:
       - vite
       - webpack
 
-  capnweb@0.11.1: {}
+  capnweb@0.12.0: {}
 
   chai@6.2.2: {}
 
@@ -3039,6 +3060,8 @@ snapshots:
       '@types/estree': 1.0.9
 
   expect-type@1.4.0: {}
+
+  fast-diff@1.3.0: {}
 
   fdir@6.5.0(picomatch@4.0.5):
     optionalDependencies:
