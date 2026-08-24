@@ -35,6 +35,19 @@ fetch handler 提供；自己写的 `backend.js` 跑在 Worker Loader 起的 iso
 共享资产（文件、skill、环境变量、widget）不算在内：那些是 Gatekeeper 的数据，核心只负责把它显示出来。
 剩下的一律放外壳：`deployment.jsonc`、`packages/` 自建 Gatekeeper、`/admin`、我们的文档和 CI。
 
+## 登录也在外壳里解决
+
+`packages/email-code-idp` 是外壳里第二类自建 Worker——不是 Gatekeeper，是一个 OIDC provider。它只做一件
+事：发验证码邮件，且邮件里**不放任何链接**。
+
+起因是 Cloudflare 自带的 one-time PIN 邮件同时带验证码和登录链接，两者共用一次性额度，邮件安全网关扫链接
+就把码用掉了，用户再输就被告知"已被使用"。官方给的解法是把发件人加白名单；加不了白名单的部署就没有第二条
+路，因为那封邮件是 Cloudflare 的，模板不可配置。
+
+关键是：这换的是 provider，不是架构。Access 仍然挡在应用前面，router 仍然占公共 origin，Workshop 仍然认同
+一个签名 JWT 里的同一个 `email` claim。核心一行没动，这也是它该待在外壳里的原因。默认关闭——能加白名单的
+部署就别开。细节在 [customization.md](customization.md#email-codes-without-the-allowlist)。
+
 ## 仍然不要盲跟官方
 
 官方 `main` 只借鉴，不自动合。升 pin 之前对一下 [upstream-pin.md](upstream-pin.md)。CI 继续保证外壳里的 `cloudflare-os` 是子模块指针，并在官方超前时给提示。

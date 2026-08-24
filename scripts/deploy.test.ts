@@ -82,7 +82,28 @@ async function baseConfigs(): Promise<BaseConfigs> {
     project: await baseConfig("../packages/gatekeeper-project/wrangler.jsonc"),
     customGatekeeper: await baseConfig("../packages/custom-gatekeeper/wrangler.jsonc"),
     errorReporter: await baseConfig("../packages/error-reporter/wrangler.jsonc"),
+    emailCodeIdp: await baseConfig("../packages/email-code-idp/wrangler.jsonc"),
   };
+}
+
+/** {@link validConfig} with the email-code sign-in provider turned on. */
+function withEmailCodeIdp(mutate: (config: Record<string, any>) => void = () => {}):
+    DeploymentConfig {
+  return variant((config) => {
+    config.workers.emailCodeIdp = {
+      name: "acme-cloudflare-os-login",
+      route: { customDomain: "login.example.com" },
+    };
+    config.emailCodeIdp = {
+      enabled: true,
+      issuer: null,
+      brand: "Acme",
+      clientId: "acme-access",
+      allowedEmails: ["@example.com"],
+      mailFrom: "Acme <login@example.com>",
+    };
+    mutate(config);
+  });
 }
 
 // Parsed the way `deploy.ts` parses it, errors included. Swallowing them would let a base config
@@ -109,6 +130,19 @@ test("rejects deployment placeholders", () => {
   assert.throws(
     () => validateConfig(variant((c) => { c.accountId = "<CLOUDFLARE_ACCOUNT_ID>"; })),
     /placeholder/i);
+});
+
+test("does not mistake an addressed mail sender for a placeholder", () => {
+  // `Acme <login@example.com>` is RFC 5322's display-name form, and it is what a delivery provider
+  // expects. Matching anything in angle brackets would report a correctly configured sender as a
+  // placeholder nobody had left behind.
+  assert.doesNotThrow(() => validateConfig(withEmailCodeIdp()));
+  // The placeholder genuinely embedded in that same field is still caught.
+  assert.throws(
+    () => validateConfig(withEmailCodeIdp((c) => {
+      c.emailCodeIdp.mailFrom = "<ORGANIZATION_DISPLAY_NAME> <login@example.com>";
+    })),
+    /<ORGANIZATION_DISPLAY_NAME>/);
 });
 
 test("rejects destructive or malformed deployment values", () => {
@@ -623,6 +657,125 @@ test("requires a token for the google provider", async () => {
   // Same account, so the binding still carries every other provider.
   assert.equal(generated.workshop.vars!.CF_AI_GATEWAY_USE_BINDING, undefined);
   assert.match(aiGatewayPlan(config)!.tokenReasons[0], /google/i);
+});
+
+test("omits the email-code sign-in provider by default", async () => {
+  const generated = generateConfigs(validConfig, await baseConfigs());
+
+  // Absent from deployment.jsonc entirely, which is the shape most deployments keep: Cloudflare's
+  // own one-time PIN is simpler, and this exists only for the deployments that cannot allowlist it.
+  assert.equal(generated.emailCodeIdp, undefined);
+  assert.equal(buildCommands(validConfig).some(
+    (command) => command.args.includes("email-code-idp")), false);
+});
+
+test("omits a disabled email-code sign-in provider and its placeholders", () => {
+  // Dormant placeholders must not fail the deploy, exactly as a disabled AI Gateway's do not.
+  const config = withEmailCodeIdp((c) => {
+    c.emailCodeIdp.enabled = false;
+    c.emailCodeIdp.brand = "<ORGANIZATION_DISPLAY_NAME>";
+    c.workers.emailCodeIdp.name = "<IDP_WORKER_NAME>";
+  });
+
+  assert.doesNotThrow(() => validateConfig(config));
+});
+
+test("gives the email-code provider its own route, origin, and secrets", async () => {
+  const config = withEmailCodeIdp();
+  const generated = generateConfigs(config, await baseConfigs());
+  const idp = generated.emailCodeIdp!;
+
+  assert.equal(idp.name, "acme-cloudflare-os-login");
+  // The one Worker besides the router with a public route, and it has to have one: Access sends
+  // browsers that have not signed in yet here, so it cannot sit behind the application it feeds.
+  assert.deepEqual(idp.routes, [{ pattern: "login.example.com", custom_domain: true }]);
+  assert.equal(idp.workers_dev, false);
+  // A preview URL would be a second, unadvertised sign-in origin issuing the same tokens.
+  assert.equal(idp.preview_urls, false);
+
+  assert.equal(idp.vars!.IDP_ISSUER, "https://login.example.com");
+  assert.equal(idp.vars!.IDP_ALLOWED_EMAILS, "@example.com");
+  // Derived from access.issuer rather than configured: a hand-entered callback that disagreed with
+  // the Access application would send authorization codes somewhere else.
+  assert.equal(
+    idp.vars!.IDP_REDIRECT_URI,
+    "https://acme.cloudflareaccess.com/cdn-cgi/access/callback");
+
+  // Both are credentials, so neither is ever written into a generated config.
+  assert.deepEqual(idp.secrets, { required: ["IDP_CLIENT_SECRET", "IDP_MAIL_API_KEY"] });
+  assert.equal(JSON.stringify(idp).includes("IDP_CLIENT_SECRET\":\""), false);
+  assert.ok(buildCommands(config).some((command) => command.args.includes("email-code-idp")));
+});
+
+test("leaves an unconfigured email-code limit to the Worker's own default", async () => {
+  const generated = generateConfigs(
+    withEmailCodeIdp((c) => { c.emailCodeIdp.limits = { maxAttempts: 4 }; }),
+    await baseConfigs());
+  const vars = generated.emailCodeIdp!.vars!;
+
+  assert.equal(vars.IDP_MAX_ATTEMPTS, "4");
+  // Written as a string, because that is what the Worker parses it back out of.
+  assert.equal(typeof vars.IDP_MAX_ATTEMPTS, "string");
+  // Untouched, so the base config's documented default survives.
+  assert.equal(vars.IDP_CODE_TTL_SECONDS, "600");
+});
+
+test("rejects an email-code provider that could never be reached or could mail anyone", () => {
+  const cases: [string, (config: Record<string, any>) => void, RegExp][] = [
+    // Sharing the router's hostname would put the login pages behind the gate they exist to open.
+    ["origin shared with the router", (c) => {
+      c.workers.emailCodeIdp.route.customDomain = "os.example.com";
+    }, /different hostname/i],
+    ["no route at all", (c) => { c.workers.emailCodeIdp.route = {}; }, /exactly one/i],
+    ["both routes", (c) => {
+      c.workers.emailCodeIdp.route = { workersDev: true, customDomain: "login.example.com" };
+    }, /exactly one/i],
+    // The account's workers.dev subdomain is not in this file, so nothing can derive the issuer.
+    ["a workersDev route with no issuer", (c) => {
+      c.workers.emailCodeIdp.route = { workersDev: true };
+    }, /issuer is required/i],
+    ["an issuer disagreeing with the custom domain", (c) => {
+      c.emailCodeIdp.issuer = "https://elsewhere.example.com";
+    }, /does not match/i],
+    ["an issuer with a path", (c) => {
+      c.emailCodeIdp.issuer = "https://login.example.com/oidc";
+    }, /origin only/i],
+    // A public endpoint that mails a code to any address on request is a mail cannon.
+    ["an empty allowlist", (c) => {
+      c.emailCodeIdp.allowedEmails = [];
+    }, /emailCodeIdp\.allowedEmails/],
+    ["a bare domain in the allowlist", (c) => {
+      c.emailCodeIdp.allowedEmails = ["example.com"];
+    }, /neither an address nor an @domain/i],
+    ["a wildcard mixed with a list", (c) => {
+      c.emailCodeIdp.allowedEmails = ["*", "@example.com"];
+    }, /either/i],
+    // The brand is rendered into an email that must carry nothing fetchable.
+    ["a brand containing a URL", (c) => {
+      c.emailCodeIdp.brand = "Acme https://acme.example.com";
+    }, /no links by design/i],
+    ["a single attempt", (c) => { c.emailCodeIdp.limits = { maxAttempts: 1 }; }, /at least 3/i],
+    ["a code that expires in transit", (c) => {
+      c.emailCodeIdp.limits = { codeTtlSeconds: 30 };
+    }, /at least 60/i],
+    ["a limit that is not a number", (c) => {
+      c.emailCodeIdp.limits = { maxAttempts: "5" };
+    }, /never trips/i],
+    ["a worker name colliding with another", (c) => {
+      c.workers.emailCodeIdp.name = c.workers.router.name;
+    }, /unique/i],
+    ["a missing worker name", (c) => { delete c.workers.emailCodeIdp; }, /workers\.emailCodeIdp/i],
+  ];
+
+  for (const [label, mutate, expected] of cases) {
+    assert.throws(() => validateConfig(withEmailCodeIdp(mutate)), expected, label);
+  }
+});
+
+test("accepts an email-code provider that deliberately mails anyone", () => {
+  // Open sign-up is a real configuration; it just has to be said out loud rather than defaulted to.
+  assert.doesNotThrow(
+    () => validateConfig(withEmailCodeIdp((c) => { c.emailCodeIdp.allowedEmails = ["*"]; })));
 });
 
 test("omits disabled backend error reporting", async () => {

@@ -182,6 +182,12 @@ The application already covers the hostname the router answers on, so keeping th
 working untouched. Only if you are moving the instance to a new hostname do you have to extend the
 application to cover it — before deploying, and along with `context.sharingDomain` from section 3.
 
+Reusing the application also carries the one-time-PIN provider over, along with its one common
+complaint: users whose mail is link-scanned are told the emailed code has already been used, because
+the scanner spent it. The migration neither causes nor fixes that, and it is not a bug in the
+deployment — see [One-time PIN sign-in](customization.md#one-time-pin-sign-in) for why, and for the
+two ways out.
+
 ## 7. What you lose
 
 - **The wizard link.** The hosted deploy sets a `DEPLOY_URL` var that renders a "manage this

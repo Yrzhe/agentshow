@@ -39,6 +39,15 @@
 
     "customGatekeeper": { "name": "<CUSTOM_GATEKEEPER_WORKER_NAME>" },
     "errorReporter": { "name": "<ERROR_REPORTER_WORKER_NAME>" }
+
+    // The email-code sign-in provider, deployed only when emailCodeIdp.enabled is true below.
+    // Uncomment along with that block. It is the one Worker besides the router that takes a public
+    // route, and it must not be behind Access: it is where Access sends browsers that have not
+    // signed in yet, so it needs a hostname of its own.
+    // "emailCodeIdp": {
+    //   "name": "<IDP_WORKER_NAME>",
+    //   "route": { "customDomain": "login.example.com" }
+    // }
   },
 
   // This starter deploys Cloudflare Access mode. Cloudflare OS also supports built-in password
@@ -51,6 +60,56 @@
     "audience": "<ACCESS_AUDIENCE>",
     "admins": ["<ADMIN_EMAIL>"]
   },
+
+  // A sign-in provider this deployment owns, which emails a code and puts no link in the email.
+  //
+  // Off by default, and it should stay off for most deployments. Cloudflare's own one-time PIN is
+  // simpler and needs no Worker; its one failure is that its email carries a code AND a sign-in
+  // link sharing a single use, so mail security link scanning spends the code on delivery and the
+  // recipient is told it was already used. The documented fix for that is allowlisting
+  // noreply@notify.cloudflare.com in the mail security product. Turn this on only when that
+  // allowlist belongs to somebody who will not grant it -- Cloudflare's email is not configurable,
+  // so there is no other way to keep emailed codes.
+  //
+  // Everything else about the deployment is unchanged: Access still fronts the application and the
+  // Workshop still trusts the same signed JWT. Only the provider Access asks is different.
+  // Reference: docs/customization.md#email-codes-without-the-allowlist
+  //
+  // "emailCodeIdp": {
+  //   "enabled": true,
+  //
+  //   // The provider's own public origin, which becomes its OIDC issuer.
+  //   // null derives it from workers.emailCodeIdp.route.customDomain, and is required on a
+  //   // workersDev route for the same reason publicBaseUrl is.
+  //   "issuer": null,
+  //
+  //   // What the sign-in page and the emailed code call this deployment. No URLs: it is rendered
+  //   // into an email that carries nothing fetchable, which is the whole point.
+  //   "brand": "<ORGANIZATION_DISPLAY_NAME>",
+  //
+  //   // The client id you also enter in Cloudflare Access. Its secret is a Worker secret,
+  //   // installed with `wrangler secret put IDP_CLIENT_SECRET`, never a value in this file.
+  //   "clientId": "<IDP_CLIENT_ID>",
+  //
+  //   // Who may be sent a code: exact addresses, "@domain" entries, or the single entry "*".
+  //   // Required and deliberately explicit. The Access policy decides who actually gets in, but
+  //   // this endpoint is public, and one that mails a code to any address on request is a mail
+  //   // cannon pointed at strangers and a bill pointed at you.
+  //   "allowedEmails": ["@example.com"],
+  //
+  //   // Envelope sender, as your delivery provider expects it. Delivery goes through Resend;
+  //   // install its key with `wrangler secret put IDP_MAIL_API_KEY`.
+  //   "mailFrom": "<ORGANIZATION_DISPLAY_NAME> <login@example.com>",
+  //
+  //   // Omit a field, or set it to null, to keep the Worker's default.
+  //   "limits": {
+  //     "codeTtlSeconds": 600,
+  //     "maxAttempts": 5,
+  //     "maxSendsPerSession": 3,
+  //     "maxSendsPerEmail": 5,
+  //     "sendWindowSeconds": 3600
+  //   }
+  // },
 
   // Model catalog served through Cloudflare AI Gateway. Enabled by default: the Workshop reaches
   // the gateway over its WORKERS_AI binding, which is pre-authenticated inside your own account,

@@ -42,7 +42,7 @@ Secrets are never valid values in this file. Install them interactively with Wra
 
 ### Workers and routing
 
-The deployment is seven Workers. Keep their names unique: service bindings use these names, so update and deploy them together.
+The deployment is seven Workers, or eight with the optional [email-code sign-in provider](#email-codes-without-the-allowlist). Keep their names unique: service bindings use these names, so update and deploy them together.
 
 | Worker | Role |
 | --- | --- |
@@ -100,6 +100,72 @@ Create a [self-hosted Access application](https://developers.cloudflare.com/clou
 - `admins`: Access-verified email addresses allowed into `/admin`.
 
 Access policies decide who can sign in. The `admins` list decides which signed-in identities can change runtime policy. Keep both narrow.
+
+#### One-time PIN sign-in
+
+The Access application also picks the identity provider, and that choice — not anything in this repository — decides what signing in looks like. A first setup, and every instance migrated from the hosted deploy, normally uses Cloudflare's [one-time PIN](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/) provider, which mails a code from `noreply@notify.cloudflare.com`. The code is single-use, it expires ten minutes after the request, and requesting another one invalidates it.
+
+That email carries both the code and a link that completes the sign-in, and the two share the one use. Anything that fetches the link spends it, which is exactly what mail security link scanning does to incoming mail; so does link preview in some clients. The user then types a code Access has already consumed and gets **This One-Time PIN has already been used** — on the first try, on every attempt, no matter how quickly they type. It looks like an application bug and is not one. Access mints, mails and consumes the PIN before a request reaches the router, so no Worker in this deployment ever sees the code, and there is nothing here to fix in response. It is also why only this sign-in misbehaves for a user whose codes from other services always work: those services mail a bare code, giving a scanner nothing to spend.
+
+The fixes are in the mail path or in the provider:
+
+- Allowlist `noreply@notify.cloudflare.com` in the mail security product, exempting it from link rewriting and scanning. This is the remedy Cloudflare documents, and it is the one to try first.
+- Where that allowlist is not yours to change, move the application to a different [identity provider](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/). The audience belongs to the application rather than the provider, so `issuer` and `audience` both survive the switch and the Workshop keeps trusting the same signed JWT. This does not mean giving up codes — see [Email codes without the allowlist](#email-codes-without-the-allowlist).
+
+Both are Access configuration, not deployment configuration. Neither requires a change to `deployment.jsonc` or a `pnpm deploy`.
+
+Swapping the provider does carry one risk worth checking first: a Workshop account is keyed by the email claim in the Access JWT, and `admins` is matched against that same claim. A provider that asserts the same address for a person keeps their account and their admin rights. One that asserts a different address — a corporate alias instead of the primary, say — signs them in as a new and empty user, quietly rather than with an error. Compare the claims the new provider issues against the existing `admins` entries before moving a deployment that already has users.
+
+#### Email codes without the allowlist
+
+The allowlist belongs to whoever runs the mail security product, and often that is not you. Cloudflare's side is fixed too: the one-time PIN email is theirs, and neither the template nor the link inside it is configurable. So when the allowlist is unavailable, that provider cannot be made to work, and nothing in this repository changes that.
+
+Signing in with an emailed code is still available. What has to change is who sends the code, and the property that has to hold is narrower than "a different provider" — it is worth naming exactly:
+
+> The email must contain a code and no link.
+
+A scanner spends links. It has nothing to spend in a bare six digits. That is the whole mechanism, and reading it that way is what keeps the next choice from repeating this one: a provider that mails a magic link, or that mails a code *and* a link as Cloudflare's does, reproduces this failure under a new name. Vendor reputation is not the variable.
+
+So the Access application needs to point at an OIDC provider whose email you control. Any [supported provider](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/) whose passwordless email can be set to send a code rather than a magic link will do, and this repository also ships one, so that a deployment does not have to take on a second vendor to fix a mail problem.
+
+##### The provider in this repository
+
+`packages/email-code-idp` is an OIDC provider that emails a code and nothing else. It replaces the provider, not the architecture: Access still fronts the application, the router still owns the public origin, and the Workshop still trusts the same signed Access JWT carrying the same `email` claim.
+
+It is off by default and should stay off wherever the allowlist is available — Cloudflare's own provider needs no Worker, no delivery account, and no key. Turn it on in `deployment.jsonc`:
+
+```jsonc
+"workers": {
+  "emailCodeIdp": { "name": "acme-login", "route": { "customDomain": "login.example.com" } }
+},
+"emailCodeIdp": {
+  "enabled": true,
+  "issuer": null,
+  "brand": "Acme",
+  "clientId": "acme-access",
+  "allowedEmails": ["@example.com"],
+  "mailFrom": "Acme <login@example.com>"
+}
+```
+
+Then:
+
+1. Install the two secrets, which are never config values: `wrangler secret put IDP_CLIENT_SECRET` and `wrangler secret put IDP_MAIL_API_KEY`, both `--name` the Worker above. Delivery goes through [Resend](https://resend.com); Cloudflare Email Routing cannot do this job, because its `send_email` binding only delivers to addresses already verified in the account.
+2. `pnpm check`, then `pnpm deploy`.
+3. Add it under **Zero Trust → Integrations → Identity providers** as [generic OIDC](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/generic-oidc/), with the client id and secret from above, the `email` scope, and the endpoints listed at `https://<its hostname>/.well-known/openid-configuration`.
+4. Send yourself a test code and read the raw message before going further. It should contain no `<a href` and no tracking URL. The Worker enforces this and its tests assert it, so this is a confirmation rather than a discovery — but it is the property the whole change rests on, and it costs a minute.
+5. On the Access application's **Authentication** tab, turn off **Accept all available identity providers** and select only the new one, so nobody is offered the broken option. **Apply instant authentication** then sends users straight there instead of showing the provider chooser.
+6. Sign in as an existing non-admin user and as an admin, and confirm the existing chats and `/admin` are both still there. That is what proves the email claim matched, per the caveat above.
+
+`access.issuer`, `access.audience` and `admins` are all untouched: the audience belongs to the application rather than the provider. The provider's own callback is derived from `access.issuer` rather than configured, since the only address it may return to is that team's OIDC callback.
+
+##### Two things to get right
+
+**This Worker takes a public route and is deliberately not behind Access.** It has to be — it is where Access sends browsers that have not signed in yet, so a provider behind the application it authenticates for could never be reached. It therefore needs a hostname of its own, and the deploy refuses one that shares the router's. It reaches no other Worker and no application data; it keeps no user table; a finished login leaves behind an expired Durable Object. `allowedEmails` is required rather than defaulted for the same reason: a public endpoint that mails a code to any address on request is a mail cannon pointed at strangers and a bill pointed at you. `["*"]` is available for deployments that genuinely want open sign-up, and has to be written out.
+
+**Keep a way back in before step 5 removes the old login method.** Narrowing an application to a single provider you have not signed in through yet is how people lock themselves out of their own deployment, and the `admins` list cannot help because reaching `/admin` requires getting through Access first. Verify the new provider in one browser while an authenticated session is still open in another, or leave a second login method enabled until the first real sign-in succeeds.
+
+[`packages/email-code-idp/README.md`](../packages/email-code-idp/README.md) documents the endpoints, the limits on codes and sends, and why single use is enforced in a Durable Object rather than KV.
 
 ### Storage
 

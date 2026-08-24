@@ -123,13 +123,38 @@ Use an incognito session after config correction. Do not bypass Access to prove 
 - If Workshop loads but `/admin` is denied, compare the non-sensitive authenticated email claim to `access.admins`, then prove the intended admin list was deployed to the running Workshop; Access policy and admin authorization are separate.
 - If an unauthorized user enters, stop exposure and tighten Access before investigating application features.
 
+### One-time PIN is reported as already used
+
+A user on the one-time-PIN identity provider enters the emailed code immediately and Access answers **This One-Time PIN has already been used**, repeatably, while the same person's codes from other services work.
+
+This is not a deployment defect and no evidence for it exists inside the checkout. Access mints, mails and consumes the PIN before a request reaches the Router, so no Worker here observes the code, no log in this deployment records the failure, and the Access authentication log holds no entry for a code that was never accepted. Do not redeploy, rotate the audience, or change `deployment.jsonc` in response; none of them touch the code path.
+
+Cloudflare's [one-time PIN](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/) email carries the code and a sign-in link that share a single use, so the ordinary cause is something fetching the link before the user finishes typing.
+
+| Cause | Distinguishing evidence | Response |
+| --- | --- | --- |
+| Mail security scans or rewrites links | Reproduces for every affected user on one mail path, first attempt, regardless of speed; unaffected users are on another path | Allowlist `noreply@notify.cloudflare.com` and exempt it from link rewriting and scanning. This is the documented remedy. |
+| Client-side link preview or prefetch | Follows the user across networks rather than the mail tenant | Disable preview for that sender, or move the user to a provider that does not mail codes. |
+| A newer code was requested | The user pressed resend, or opened the login page twice, then typed the older code | Requesting a PIN invalidates the previous one. Use the newest mail, or restart from one login tab. |
+| Code is past its window | More than ten minutes since the request | Request a fresh code. Expiry runs from the request, not from delivery. |
+
+When the mail path is not the operator's to change, the durable fix is the Access application's identity provider, not this deployment: `access.issuer` and `access.audience` survive the switch because the audience belongs to the application. Changing a sign-in method requires explicit operator approval and a re-run of the allowed and denied identity checks.
+
+Do not assume that ends emailed codes. An operator who needs code sign-in keeps it by moving who sends the code, and the requirement to hold them to is that **the email contains a code and no link** — a scanner spends links and has nothing to spend in bare digits. Any OIDC provider whose passwordless email template the operator controls satisfies it; another magic-link provider, or one that mails a code alongside a link as Cloudflare's does, reproduces the failure under a new name. Require a raw test message showing no `<a href` as the acceptance evidence, before the application is reconfigured. See `docs/customization.md`.
+
+Treat the email claim as the migration risk in that switch, not the JWT. Accounts and the `admins` list are both keyed by the address Access asserts, so a provider that asserts a different address for the same person creates an empty account and silently drops their admin rights instead of failing. Compare the new provider's claims against existing identities and `access.admins` before switching a deployment that already has users, and verify an existing user's data is still present afterwards.
+
+Narrowing the application to one unproven provider is a lockout risk, and `access.admins` cannot recover it because `/admin` sits behind Access. Keep an authenticated session open in a second browser, or leave a second login method enabled, until a real sign-in through the new provider succeeds.
+
 ### Evaluation route is unexpectedly public
 
 `workersDev: true` creates a route; it does not configure Access. Protect the exact `workers.dev` hostname the Router answers on with its own Access application.
 
 `scripts/deploy.ts` writes `preview_urls: false` on all Workers other than the router worker, because a Preview URL is an unauthenticated path around the Access-protected origin. Verify that in the derived config rather than assuming it, check the current Wrangler docs for changed defaults, and never patch the generated config to alter one.
 
-If a Worker other than the Router is publicly reachable, that is an Access bypass, not a routing nicety: the derived config gives the other five `workers_dev: false` and no routes, so an unexpected route means something outside this deploy created it.
+If a backend Worker is publicly reachable, that is an Access bypass, not a routing nicety: the derived config gives every one of them `workers_dev: false` and no routes, so an unexpected route means something outside this deploy created it.
+
+The email-code sign-in provider is the single exception, and only when `emailCodeIdp.enabled` is true. Being outside Access is what it is for — Access sends unauthenticated browsers to it — so finding it publicly reachable is correct. Check instead that it answers on a hostname of its own, that `emailCodeIdp.allowedEmails` is not `["*"]` unless the deployment intends open sign-up, and that it holds no binding to any other Worker.
 
 ## Storage And Missing Data
 

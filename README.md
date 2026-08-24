@@ -49,6 +49,8 @@ This repository adds deployment controls around a pinned [Cloudflare OS](https:/
 
 The deployment is seven Workers. A **router** owns the public route and serves the frontend, proxying `/api` to the Workshop backend and `/gatekeeper/<name>` to whichever Gatekeeper the binding name matches; the Workshop, the Context, Scheduler, Project and custom Gatekeepers, and the Error Reporter sit behind it with no route of their own, reachable only over service bindings.
 
+An eighth is optional and off by default: an [email-code sign-in provider](docs/customization.md#email-codes-without-the-allowlist) for deployments that cannot allowlist Cloudflare's one-time PIN sender. It is the one Worker that takes a public route without sitting behind Access, because it is where Access sends browsers that have not signed in yet.
+
 The deploy command derives temporary Wrangler files from upstream base configs, builds the frontend in Cloudflare Access mode, deploys the private Error Reporter, the Gatekeepers and the Workshop before the router that binds them, and removes generated files even on failure. Secrets never enter tracked configuration.
 
 ### If you only want branding
@@ -83,7 +85,7 @@ Cloudflare OS supports several sign-in methods. This starter deploys [Cloudflare
 3. Copy its [application audience tag](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/#get-your-aud-tag).
 4. Open [`deployment.jsonc`](deployment.jsonc) and replace the active placeholders. Every control is annotated in place.
 
-The hostname belongs to the router, the only Worker here with a public route. Wrangler creates its DNS and TLS at deploy time. For an evaluation without a zone, switch the annotated route to `{ "workersDev": true }` and set `publicBaseUrl` to the resulting origin.
+The hostname belongs to the router, the only Worker with a public route unless the optional email-code sign-in provider is turned on. Wrangler creates its DNS and TLS at deploy time. For an evaluation without a zone, switch the annotated route to `{ "workersDev": true }` and set `publicBaseUrl` to the resulting origin.
 
 ### 3. Validate and deploy
 
