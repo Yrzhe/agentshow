@@ -192,6 +192,7 @@ For production:
 4. Use a narrow policy for intended identities. Broad `Everyone`, `Bypass`, or weak bootstrap policies require an explicit risk acceptance.
 5. Copy the exact HTTPS team-origin issuer and exact application audience tag.
 6. Make administrators an explicit subset of users allowed by Access.
+7. Treat the identity provider as a decision of its own. The one-time-PIN provider is the usual default and needs no setup, but its mail carries a code and a sign-in link that share a single use, so a population behind mail security link scanning will be told the code is already used. Confirm the operator can allowlist `noreply@notify.cloudflare.com`, or choose a provider that does not mail codes.
 
 For evaluation, using `workersDev: true` does not itself add authentication. Protect the exact evaluation hostname with Access and use that application's audience. `publicBaseUrl` must name that same hostname: it is what `PUBLIC_BASE_URL` and the Context sharing boundary derive from, and the deploy refuses a `workers.dev` route without it. Confirm Preview URLs are off in every generated config, and never patch a generated file to change one.
 

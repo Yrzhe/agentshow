@@ -101,6 +101,21 @@ Create a [self-hosted Access application](https://developers.cloudflare.com/clou
 
 Access policies decide who can sign in. The `admins` list decides which signed-in identities can change runtime policy. Keep both narrow.
 
+#### One-time PIN sign-in
+
+The Access application also picks the identity provider, and that choice — not anything in this repository — decides what signing in looks like. A first setup, and every instance migrated from the hosted deploy, normally uses Cloudflare's [one-time PIN](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/) provider, which mails a code from `noreply@notify.cloudflare.com`. The code is single-use, it expires ten minutes after the request, and requesting another one invalidates it.
+
+That email carries both the code and a link that completes the sign-in, and the two share the one use. Anything that fetches the link spends it, which is exactly what mail security link scanning does to incoming mail; so does link preview in some clients. The user then types a code Access has already consumed and gets **This One-Time PIN has already been used** — on the first try, on every attempt, no matter how quickly they type. It looks like an application bug and is not one. Access mints, mails and consumes the PIN before a request reaches the router, so no Worker in this deployment ever sees the code, and there is nothing here to fix in response. It is also why only this sign-in misbehaves for a user whose codes from other services always work: those services mail a bare code, giving a scanner nothing to spend.
+
+The fixes are in the mail path or in the provider:
+
+- Allowlist `noreply@notify.cloudflare.com` in the mail security product, exempting it from link rewriting and scanning. This is the remedy Cloudflare documents, and it is the one to try first.
+- Where that allowlist is not yours to change, move the application to an identity provider that does not send codes by mail. Any [supported provider](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/) works. The audience belongs to the application rather than the provider, so `issuer` and `audience` both survive the switch and the Workshop keeps trusting the same signed JWT.
+
+Both are Access configuration, not deployment configuration. Neither requires a change to `deployment.jsonc` or a `pnpm deploy`.
+
+Swapping the provider does carry one risk worth checking first: a Workshop account is keyed by the email claim in the Access JWT, and `admins` is matched against that same claim. A provider that asserts the same address for a person keeps their account and their admin rights. One that asserts a different address — a corporate alias instead of the primary, say — signs them in as a new and empty user, quietly rather than with an error. Compare the claims the new provider issues against the existing `admins` entries before moving a deployment that already has users.
+
 ### Storage
 
 Wrangler supports [automatic provisioning](https://developers.cloudflare.com/workers/wrangler/configuration/#automatic-provisioning) for KV and R2. Leave these values as `null` for a new deployment:
