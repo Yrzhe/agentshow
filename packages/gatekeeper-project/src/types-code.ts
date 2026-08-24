@@ -154,9 +154,27 @@ export interface ProjectFileWrite {
 /**
  * A widget: a small app published into a project.
  *
- * A widget is \`index.html\` plus whatever assets it needs, and optionally a \`backend.js\` that answers
- * its \`api/\` requests. Opening its link runs it in the browser. Who may open it is the widget's
- * visibility, exactly as it is for a file.
+ * A widget is \`index.html\` plus whatever assets it needs. Opening its link runs it in the browser.
+ * Who may open it is the widget's visibility, exactly as it is for a file.
+ *
+ * Every widget has a store it can read and write over HTTP without any backend code, at \`api/store\`
+ * under its own address:
+ *
+ * \`\`\`js
+ * await fetch("api/store/draft", { method: "PUT", body: JSON.stringify(draft) });
+ * const { value } = await (await fetch("api/store/draft")).json();
+ * const { entries } = await (await fetch("api/store?prefix=note/")).json();
+ * await fetch("api/store/draft", { method: "DELETE" });
+ * \`\`\`
+ *
+ * The store belongs to that one widget, and everyone who can open the widget shares it -- which is
+ * what makes it useful and also what makes a \`public\` widget's store readable by anyone holding the
+ * link. \`PUT\` stores the request body exactly as sent and \`GET\` gives back the same string; keys may
+ * contain slashes, so a widget can namespace its own. A key holds at most 128 KiB, and a widget at
+ * most 1000 keys.
+ *
+ * \`setWidgetBackend()\` replaces all of this with a module of your own, which then answers everything
+ * under \`api/\` including \`api/store\`.
  */
 export interface ProjectWidgetSummary {
   widgetId: string;
@@ -173,7 +191,12 @@ export interface ProjectWidgetSummary {
   fileCount: number;
   /** Total bytes of those files. They count against the project's quota like any other file. */
   size: number;
-  /** Whether the widget has a \`backend.js\`, and so answers anything under \`api/\`. */
+  /**
+   * Whether the widget has a \`backend.js\` of its own.
+   *
+   * \`false\` does not mean nothing answers under \`api/\`: the built-in store still does. It means the
+   * widget runs no code of its own on the server.
+   */
   hasBackend: boolean;
   updated: string;
   /**
@@ -301,6 +324,9 @@ export interface ProjectWorkspace {
    *
    * The path decides who can see it, exactly as it does for a file: a widget under \`shared/\`
    * defaults to project-wide, anywhere else to private.
+   *
+   * An \`index.html\` is enough for a working widget, including one that remembers things: see
+   * \`ProjectWidgetSummary\` for the store it can reach at \`api/store\` with no backend at all.
    */
   createWidget(opts: {
     name: string;
@@ -318,9 +344,10 @@ export interface ProjectWorkspace {
   /**
    * Write one file into one of your widgets. Only the widget's owner may.
    *
-   * \`index.html\` is what the widget's address serves. Paths under \`api/\` belong to the backend and
-   * are refused here, and \`backend.js\` is written with \`setWidgetBackend()\` instead, because code
-   * and assets are not the same decision.
+   * \`index.html\` is what the widget's address serves. Paths under \`api/\` are the widget's own
+   * addresses -- its built-in store, or its backend if it has one -- and are refused here, and
+   * \`backend.js\` is written with \`setWidgetBackend()\` instead, because code and assets are not the
+   * same decision.
    */
   writeWidgetFile(
     widgetId: string,
@@ -332,6 +359,17 @@ export interface ProjectWorkspace {
   /**
    * Give one of your widgets a backend, or replace the one it has.
    *
+   * Most widgets do not need one. A widget only wanting to remember something already has
+   * \`api/store\` (see \`ProjectWidgetSummary\`), and writing a backend is what you do when the widget
+   * needs logic the browser cannot be trusted with -- a rule about who may change what, a value
+   * derived from the project's shared configuration, a check the frontend must not be able to skip.
+   * A backend replaces the built-in store route: from then on the module answers all of \`api/\`,
+   * \`api/store\` included, and reaches the same store through \`env.STORE\`.
+   *
+   * Some deployments cannot run one at all: this needs a Worker Loader binding, and a request to a
+   * widget's backend on a deployment without one is answered with a 501 saying so. The built-in
+   * store works everywhere.
+   *
    * The module is an ordinary Worker module -- \`export default { async fetch(request, env) { ... } }\`
    * -- and it answers everything the widget receives under \`api/\`, with the path it sees starting at
    * \`/api\`. It runs in an isolate of its own, with no access to the internet and none to the project
@@ -341,13 +379,14 @@ export interface ProjectWorkspace {
    * - \`env.WIDGET\`, which is \`{ projectId, widgetId, principal }\`, where \`principal\` is
    *   \`{ kind: "member", memberId, role }\` for a project member and \`{ kind: "public" }\` for
    *   somebody holding a public widget's link
-   * - \`env.STORE\`, a key-value store belonging to this widget alone, with \`get(key)\`,
-   *   \`put(key, value)\`, \`delete(key)\` and \`list({ prefix, limit })\`
+   * - \`env.STORE\`, the same store \`api/store\` serves: a key-value store belonging to this widget
+   *   alone, with \`get(key)\`, \`put(key, value)\`, \`delete(key)\` and \`list({ prefix, limit })\`
    *
    * \`WIDGET\` and \`STORE\` are reserved: shared configuration of those names is not passed through.
    *
    * A backend can read shared configuration, so publishing a widget publishes whatever its backend
-   * chooses to reveal from it.
+   * chooses to reveal from it. That is the difference that makes this the one write here a person
+   * always has to approve.
    */
   setWidgetBackend(widgetId: string, content: string): Promise<ProjectWidgetFile>;
 
@@ -364,8 +403,8 @@ export interface ProjectWorkspace {
    *
    * This is the whole share control. \`public\` means anyone who can reach this deployment and holds
    * the widget's link, whether or not they have joined the project; their requests reach the
-   * backend as \`{ kind: "public" }\`. Changing it back takes effect at once, including for browsers
-   * that already have the widget open.
+   * backend as \`{ kind: "public" }\`, and they can read and write the widget's store. Changing it
+   * back takes effect at once, including for browsers that already have the widget open.
    */
   setWidgetVisibility(
     widgetId: string,
