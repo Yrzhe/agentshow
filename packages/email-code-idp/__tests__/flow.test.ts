@@ -143,6 +143,19 @@ describe("the sign-in flow", () => {
     expect(location.searchParams.get("state")).toBe("state-value");
   });
 
+  it("gives the code field a pattern a browser can compile", async () => {
+    const session = await startLogin();
+    const page = await (await submitEmail(session, "ada@example.com")).text();
+
+    const pattern = /pattern="([^"]+)"/.exec(page)?.[1];
+    expect(pattern, "the code field should constrain what can be typed").toBeDefined();
+    // A `pattern` attribute is compiled as a unicode-sets regular expression, and a browser
+    // discards one it cannot compile -- so an uncompilable pattern is a rule that silently is not
+    // there. `[0-9\s-]*` is exactly that: fine under `u`, a syntax error under `v`.
+    expect(() => new RegExp(`^(?:${pattern})$`, "v")).not.toThrow();
+    expect(new RegExp(`^(?:${pattern})$`, "v").test("123 456")).toBe(true);
+  });
+
   it("accepts a code typed with the spacing a mail client displays", async () => {
     const session = await startLogin();
     await submitEmail(session, "ada@example.com");

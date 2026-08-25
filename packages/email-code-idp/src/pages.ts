@@ -110,6 +110,11 @@ ${errorBlock(error)}
  * `autocomplete="one-time-code"` is what lets iOS and Android offer the code from the notification,
  * which matters more here than usual: the whole point of this provider is that the mail has no link
  * to tap, so typing is the only path and it should be as short as possible.
+ *
+ * The dash in `pattern` is escaped because a `pattern` attribute is compiled as a unicode-sets
+ * regular expression, in which `\s-]` is a syntax error rather than a literal dash. A browser
+ * discards a pattern it cannot compile, so the unescaped version silently stopped catching a pasted
+ * word here and left the server to say so instead.
  */
 export function codePage(
   options: {
@@ -131,7 +136,7 @@ ${errorBlock(error)}
   <input type="hidden" name="session" value="${escapeHtml(session)}">
   <label for="code">${digits}-digit code</label>
   <input id="code" name="code" class="code" type="text" inputmode="numeric"
-         autocomplete="one-time-code" pattern="[0-9\\s-]*" maxlength="${digits + 6}"
+         autocomplete="one-time-code" pattern="[0-9\\s\\-]*" maxlength="${digits + 6}"
          required autofocus>
   <button type="submit">Sign in</button>
 </form>
