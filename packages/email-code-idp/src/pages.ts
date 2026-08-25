@@ -27,6 +27,7 @@ main {
 }
 h1 { font-size: 20px; line-height: 1.3; margin: 0 0 8px; }
 p { font-size: 14px; line-height: 1.5; color: #6e6e73; margin: 0 0 20px; }
+a { color: #0071e3; }
 label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; }
 input {
   width: 100%; font: inherit; padding: 11px 12px; border: 1px solid #d2d2d7; border-radius: 9px;
@@ -51,6 +52,7 @@ button.secondary:hover { background: rgba(0,113,227,.08); }
   body { background: #000; color: #f5f5f7; }
   main { background: #1c1c1e; box-shadow: none; }
   p { color: #98989d; }
+  a { color: #2997ff; }
   input { background: #2c2c2e; border-color: #3a3a3c; }
   .error { background: #3b1513; color: #ff6961; }
   .sent strong { color: #f5f5f7; }
