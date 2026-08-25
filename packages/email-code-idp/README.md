@@ -51,10 +51,45 @@ Consequences worth holding in mind:
 | `GET /.well-known/openid-configuration` | Discovery, so the integration can be checked without reading the source |
 | `GET /authorize` | Validates the OIDC request, then asks for an address and a code |
 | `POST /authorize/email` | Mints a code and mails it |
-| `POST /authorize/code` | Spends an attempt; on success redirects to Access with an authorization code |
+| `POST /authorize/code` | Spends an attempt; on success hands the browser back to Access with an authorization code |
 | `POST /token` | Exchanges that single-use code for an `id_token` carrying `email` |
 | `GET /userinfo` | The same claims again, for verifiers that ask separately |
 | `GET /jwks` | The public half of the signing key |
+
+## Why the last step is a page and not a redirect
+
+A correct code ends with a small **Signing you in** page whose `refresh` meta carries the browser to
+the Access callback. The obvious shape — answer the form post with a `302` — is the one shape that
+cannot be used here, and the reason is worth writing down, because getting it wrong produces the
+most confusing failure this Worker can produce.
+
+Chrome and Safari check **every hop** of a form submission's redirect chain against the submitting
+page's `form-action`. This hop leaves the origin twice: to the Access callback, and from there to the
+application. Listing the callback is not enough, and the second origin is the application's, which
+this Worker does not know. So under `form-action 'self'` a `302` here is refused *after* the code has
+been spent: no error is shown, the browser stays on the code page, and the person in front of it
+does the only sensible thing and presses **Sign in** again — which now reports a code that is not
+valid, because it was already redeemed by the tap that appeared to do nothing. Firefox follows the
+redirect, and so does `curl`, which is what makes it look like a phone problem.
+
+A `refresh` meta is not a form submission, so `form-action` never applies and the rest of the Access
+chain runs. The visible link under it is the same navigation by hand.
+
+The same shape has a second consequence worth knowing. These pages are served with
+`referrer-policy: no-referrer`, and a browser hides the origin of a non-GET navigation from such a
+page, so **every** submission from the sign-in page arrives as `Origin: null`. Refusing a null origin
+therefore refuses every browser while letting `curl` through. `/authorize/email` and
+`/authorize/code` refuse only a *named* other origin; the session token, which only ever exists in
+the page the visitor is looking at, is what actually keeps them from answering to anybody else.
+
+A correct code should produce exactly this chain, and it is the quickest way to tell the hop is
+healthy:
+
+```
+POST /authorize/code                     -> 200, "Signing you in"
+GET  <team>.cloudflareaccess.com/cdn-cgi/access/callback?code=...&state=...  -> 302
+GET  <the application>                   -> 200, signed in
+```
 
 ## What makes a code single-use
 

@@ -115,18 +115,34 @@ function decodeClaims(token: string): Record<string, unknown> {
   return JSON.parse(atob(padded)) as Record<string, unknown>;
 }
 
+/**
+ * Where a correct code sends the browser next.
+ *
+ * Read out of the page rather than off a `Location` header, because that is the shape this hop has
+ * to keep: Chrome and Safari refuse to follow a redirect out of a form submission to an origin the
+ * submitting page's `form-action` does not list, and the code is already spent by the time they
+ * refuse. Every assertion below therefore goes through here, so a `Response.redirect` added back
+ * later fails the suite rather than only the iPhones.
+ */
+async function handoff(response: Response): Promise<URL> {
+  expect(response.status).toBe(200);
+  expect(response.headers.get("location")).toBeNull();
+  const body = await response.text();
+  const target = /<meta http-equiv="refresh" content="0; url=([^"]+)">/.exec(body)?.[1];
+  expect(target, "a correct code should hand the browser a callback to follow").toBeDefined();
+  return new URL(target!.replaceAll("&amp;", "&").replaceAll("&#39;", "'"));
+}
+
 /** Signs in end to end and returns the authorization code Access would receive. */
 async function signIn(email = "ada@example.com"): Promise<string> {
   const session = await startLogin();
   await submitEmail(session, email);
-  const response = await submitCode(session, lastCode());
-  expect(response.status).toBe(302);
-  const location = new URL(response.headers.get("location")!);
-  return location.searchParams.get("code")!;
+  const callback = await handoff(await submitCode(session, lastCode()));
+  return callback.searchParams.get("code")!;
 }
 
 describe("the sign-in flow", () => {
-  it("emails a code and redirects back to Access with an authorization code", async () => {
+  it("emails a code and hands the browser back to Access with an authorization code", async () => {
     const session = await startLogin();
 
     const emailed = await submitEmail(session, "ada@example.com");
@@ -134,13 +150,27 @@ describe("the sign-in flow", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]!.to).toBe("ada@example.com");
 
-    const redirected = await submitCode(session, lastCode());
-    expect(redirected.status).toBe(302);
-    const location = new URL(redirected.headers.get("location")!);
-    expect(location.origin + location.pathname).toBe(REDIRECT_URI);
-    expect(location.searchParams.get("code")).toMatch(/^[\da-f]{64}$/);
+    const callback = await handoff(await submitCode(session, lastCode()));
+    expect(callback.origin + callback.pathname).toBe(REDIRECT_URI);
+    expect(callback.searchParams.get("code")).toMatch(/^[\da-f]{64}$/);
     // Returned untouched, which is what lets Access match the callback to the request it started.
-    expect(location.searchParams.get("state")).toBe("state-value");
+    expect(callback.searchParams.get("state")).toBe("state-value");
+  });
+
+  it("leaves the callback reachable to a browser enforcing form-action", async () => {
+    // The bug this replaced: the response to the code form was a 302 to the Access callback, and a
+    // form submission's redirect chain is checked against `form-action` in Chrome and Safari -- both
+    // the hop to Access and the hop from Access to the application. Blocked there, the browser stays
+    // on the code page silently, and the code it just spent is gone. So the success response carries
+    // no `Location` at all, and the page it does carry has something to tap when nothing happens.
+    const session = await startLogin();
+    await submitEmail(session, "ada@example.com");
+
+    const response = await submitCode(session, lastCode());
+    expect(response.headers.get("content-security-policy")).toContain("form-action 'self'");
+    const body = await response.clone().text();
+    const callback = await handoff(response);
+    expect(body).toContain(`<a href="${callback.toString().replaceAll("&", "&amp;")}"`);
   });
 
   it("gives the code field a pattern a browser can compile", async () => {
@@ -161,7 +191,7 @@ describe("the sign-in flow", () => {
     await submitEmail(session, "ada@example.com");
     const spaced = lastCode().replace(/^(\d{3})(\d{3})$/, "$1 $2");
 
-    expect((await submitCode(session, spaced)).status).toBe(302);
+    await handoff(await submitCode(session, spaced));
   });
 
   it("mints a different code for each login", async () => {
@@ -253,7 +283,7 @@ describe("code redemption", () => {
     const session = await startLogin();
     await submitEmail(session, "ada@example.com");
     const code = lastCode();
-    expect((await submitCode(session, code)).status).toBe(302);
+    await handoff(await submitCode(session, code));
 
     // The session is finished, so the replay finds nothing rather than a second success. This is
     // the failure mode the whole Worker was written to avoid producing.
@@ -286,7 +316,7 @@ describe("code redemption", () => {
       expect(await (await submitCode(session, typo)).text()).toContain("6-digit code");
     }
     // All three attempts survive, because none of those could have been a guess.
-    expect((await submitCode(session, code)).status).toBe(302);
+    await handoff(await submitCode(session, code));
   });
 
   it("invalidates the previous code when a new one is sent", async () => {
@@ -297,7 +327,7 @@ describe("code redemption", () => {
     expect(sent).toHaveLength(2);
 
     expect(await (await submitCode(session, first)).text()).toContain("not correct");
-    expect((await submitCode(session, lastCode())).status).toBe(302);
+    await handoff(await submitCode(session, lastCode()));
   });
 });
 

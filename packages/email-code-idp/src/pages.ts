@@ -57,14 +57,14 @@ button.secondary:hover { background: rgba(0,113,227,.08); }
 }
 `.trim();
 
-function layout(title: string, body: string): Response {
+function layout(title: string, body: string, head = ""): Response {
   const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>${escapeHtml(title)}</title>
+${head}<title>${escapeHtml(title)}</title>
 <style>${STYLE}</style>
 </head>
 <body><main>${body}</main></body>
@@ -145,6 +145,32 @@ ${canResend ? `<form method="post" action="/authorize/email">
   <input type="hidden" name="email" value="${escapeHtml(email)}">
   <button type="submit" class="secondary">Send a new code</button>
 </form>` : ""}`);
+}
+
+/**
+ * Step three: hand the browser back to Access.
+ *
+ * A page rather than the `302` this obviously wants to be, because the response to a form
+ * submission is the one place a redirect cannot be relied on. Chrome and Safari check every hop of
+ * a form submission's redirect chain against the submitting page's `form-action`, and this hop
+ * leaves the origin twice: to the Access callback, and from there to the application. Listing those
+ * origins is not a fix either -- the second one is the application's, which this Worker does not
+ * know and has no business knowing. So a `302` here is refused by the browser *after* the code has
+ * been spent, which puts the visitor back on the code page with no error, a code that is now used
+ * up, and every reason to press the button again. Firefox follows it and so does curl, which is what
+ * makes the result look like a phone problem rather than a redirect problem.
+ *
+ * A `refresh` meta is not a form submission, so `form-action` never applies to it and the rest of
+ * the Access chain runs. The link below it is the same navigation by hand, for anything that ignores
+ * the meta.
+ */
+export function continuePage(options: { brand: string; url: string }): Response {
+  const url = escapeHtml(options.url);
+  const brand = escapeHtml(options.brand);
+  return layout(`Signing in to ${options.brand}`, `
+<h1>Signing you in</h1>
+<p>Taking you to ${brand}. If nothing happens, <a href="${url}">continue to ${brand}</a>.</p>`,
+  `<meta http-equiv="refresh" content="0; url=${url}">\n`);
 }
 
 /**

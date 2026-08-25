@@ -19,7 +19,7 @@ import {
 import { isAllowedEmail, readConfig, type IdpConfig } from "./config.js";
 import { renderCodeMessage, resendSender } from "./email.js";
 import { publicJwk, signJwt, verifyJwt } from "./jwt.js";
-import { codePage, emailPage, errorPage } from "./pages.js";
+import { codePage, continuePage, emailPage, errorPage } from "./pages.js";
 import type { AuthRequest, VerifyFailure } from "./store.js";
 
 /** How long an authorization code stays exchangeable. Access redeems it immediately. */
@@ -235,7 +235,10 @@ async function handleCodeSubmit(
   const target = new URL(request.redirectUri);
   target.searchParams.set("code", authCode);
   if (request.state) target.searchParams.set("state", request.state);
-  return Response.redirect(target.toString(), 302);
+  // Deliberately not a redirect: see `continuePage`. The code has just been spent, so this response
+  // is the only chance the browser gets to leave, and a redirect out of a form submission is the one
+  // kind of response Chrome and Safari refuse to follow.
+  return continuePage({ brand: config.brand, url: target.toString() });
 }
 
 /** Client credentials from either the Basic header or the form body, as OAuth allows both. */

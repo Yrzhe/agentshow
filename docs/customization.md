@@ -157,6 +157,8 @@ Then:
 5. On the Access application's **Authentication** tab, turn off **Accept all available identity providers** and select only the new one, so nobody is offered the broken option. **Apply instant authentication** then sends users straight there instead of showing the provider chooser.
 6. Sign in as an existing non-admin user and as an admin, and confirm the existing chats and `/admin` are both still there. That is what proves the email claim matched, per the caveat above.
 
+A correct code should end on the application by way of a **Signing you in** page: `POST /authorize/code` answers `200`, the browser follows that page to the team's `/cdn-cgi/access/callback`, and Access sends it on to the application. If a correct code instead leaves you on the code page with no error, and pressing **Sign in** again says the code is not valid, the code was accepted and the *hand-off* was refused — [the provider's README](../packages/email-code-idp/README.md#why-the-last-step-is-a-page-and-not-a-redirect) has the two browser behaviours that cause that and why it shows up on a phone before a laptop.
+
 `access.issuer`, `access.audience` and `admins` are all untouched: the audience belongs to the application rather than the provider. The provider's own callback is derived from `access.issuer` rather than configured, since the only address it may return to is that team's OIDC callback.
 
 ##### Two things to get right
