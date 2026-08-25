@@ -386,10 +386,16 @@ export async function handleRequest(
   }
   if (method === "GET" && path === "/authorize") return handleAuthorize(url, config, ctx);
   if (method === "POST" && (path === "/authorize/email" || path === "/authorize/code")) {
-    // A cross-site POST cannot reach here with a usable session token, but the check costs nothing
-    // and keeps the form endpoints answering only to pages this Worker served.
+    // Only a *named* other origin is refused. A form post from these pages arrives with
+    // `Origin: null`, because they are served with `referrer-policy: no-referrer` and a browser
+    // hides the origin of a non-GET navigation from such a page -- so refusing a null origin
+    // refuses every real browser while letting curl straight through, which is the opposite of the
+    // intent. An absent header says no more than a null one does. What actually keeps these
+    // endpoints from answering to anybody else is the session token, which only ever exists in the
+    // page the visitor is looking at.
     const origin = request.headers.get("origin");
-    if (origin !== null && origin !== config.issuer && origin !== url.origin) {
+    if (origin !== null && origin !== "null" &&
+        origin !== config.issuer && origin !== url.origin) {
       return errorPage({ brand: config.brand, message: "That request did not come from sign-in." });
     }
     const form = await request.formData();

@@ -397,6 +397,38 @@ describe("the OIDC request", () => {
     expect(location.searchParams.get("state")).toBe("state-value");
   });
 
+  it("accepts a form post from its own page, which arrives with a null origin", async () => {
+    // What a browser really sends. These pages carry `referrer-policy: no-referrer`, and a browser
+    // hides the origin of a non-GET navigation from such a page, so every submission from the
+    // sign-in page arrives as `Origin: null`. Refusing that refuses every browser and lets curl
+    // through -- which is how this endpoint came to answer "That request did not come from
+    // sign-in." to the one caller it exists for.
+    const session = await startLogin();
+
+    const response = await SELF.fetch(`${ISSUER}/authorize/email`, {
+      ...form({ session, email: "ada@example.com" }),
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: "null" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("refuses a form post from a named other origin", async () => {
+    const session = await startLogin();
+
+    const response = await SELF.fetch(`${ISSUER}/authorize/email`, {
+      ...form({ session, email: "ada@example.com" }),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "https://attacker.example",
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(sent).toHaveLength(0);
+  });
+
   it("refuses a submission carrying a session it never issued", async () => {
     const response = await submitEmail("0".repeat(64), "ada@example.com");
 
