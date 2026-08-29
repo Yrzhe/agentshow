@@ -131,3 +131,32 @@ AI SDK 版本是 7.0.84，`tool({ description, inputSchema, execute })`，
 `getTools(): ToolSet`。
 
 ---
+
+## [2026-08-29T10:45:44.418Z] · deviation · claude-code
+**Task 1：官方 getting-started 漏了一个 peer dep，另两条警告是噪音**
+
+Task 1 实测，三处跟官方 getting-started 不符或它没说：
+
+1. **`@ai-sdk/react` 是 `@cloudflare/think` 的 peer dependency，教程的 npm install 那行没列。**
+   不装的话 `react.d.ts` 里 `import("@ai-sdk/react").UseChatHelpers` 解析失败，
+   `useAgentChat` 的返回类型整个塌成 any，`messages.map((m) => ...)` 报 TS7006。
+   装 `@ai-sdk/react@^4.0.0`（peer 范围是 `^3.0.0 || ^4.0.0`）后 tsc 零错误。
+
+2. **npm 11 那条 allow-scripts 警告是噪音。** 它提示 `workerd` / `esbuild` 的 postinstall
+   被拦，但二进制其实由平台包（`@cloudflare/workerd-darwin-arm64`、`@esbuild/darwin-arm64`）
+   预编译随包发，不依赖 postinstall。实测 `npx wrangler --version` 正常输出 4.127.1。
+   **不要去 approve-scripts。**
+
+3. **`npm init -y` 默认给 `"type": "commonjs"`**，必须改成 `module`，
+   否则 Think 和 agents 的 ESM import 在第一次加载就炸。
+
+另外确认：`workers-ai-provider` 确实在 think 的 dependencies 里（不是 peer），
+所以「返回模型 id 字符串即可，不用另装 provider」这条是真的。
+tsconfig 只需要 `{"extends": "agents/tsconfig"}`。
+
+**验收方式**：`vite dev` 起服务，Playwright 打开真页面、真发一条消息，
+断言模型返回且内容体现读到了 system prompt（它答出了「通过共享项目公共文件区和
+@提及协作，不直接聊天」）。控制台 0 错误 0 警告。
+不是只看 tsc 过就算通 —— Task 1 是硬闸口，必须真调通模型。
+
+---
