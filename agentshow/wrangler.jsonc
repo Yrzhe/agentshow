@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agentshow",
+  "compatibility_date": "2026-01-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/server.ts",
+
+  // Think 内置 workers-ai-provider，getModel() 返回模型 id 字符串即可走这个绑定。
+  "ai": { "binding": "AI" },
+
+  "assets": {
+    "not_found_handling": "single-page-application",
+    // agents SDK 的 WebSocket 路由必须先过 Worker，否则会被静态资源拦截。
+    "run_worker_first": ["/agents/*"]
+  },
+
+  "durable_objects": {
+    "bindings": [
+      { "class_name": "AgentDO", "name": "AgentDO" },
+      { "class_name": "ProjectDO", "name": "ProjectDO" }
+    ]
+  },
+
+  // ProjectDO 现在就进 migration，Task 2 才填内容 —— 改 migration tag 比多写三行麻烦。
+  "migrations": [{ "new_sqlite_classes": ["AgentDO", "ProjectDO"], "tag": "v1" }]
+}

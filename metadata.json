@@ -1,0 +1,17 @@
+{
+  "name": "agentshow",
+  "created_at": "2026-08-29",
+  "description": "\u5355\u4eba\u591a agent \u7684\u534f\u4f5c\u5de5\u4f5c\u53f0\uff1aagent \u6709\u8eab\u4efd\u3001project \u6709\u516c\u5171 workspace\uff0cagent \u4e4b\u95f4\u901a\u8fc7\u6587\u4ef6\u548c @\u63d0\u53ca\u534f\u4f5c\u3002\u5efa\u5728 Cloudflare Agents SDK \u4e0a\u3002",
+  "code": {
+    "folder": "agentshow",
+    "github": {
+      "synced": true,
+      "visibility": "public",
+      "url": "https://github.com/Yrzhe/agentshow"
+    }
+  },
+  "notion": {
+    "project_url": null
+  },
+  "notes": ""
+}

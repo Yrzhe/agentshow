@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+*.local
+
+# wrangler types 的产物，每台机器自己生成
+worker-configuration.d.ts
+
+.DS_Store

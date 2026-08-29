@@ -1,0 +1,28 @@
+---
+description: agentshow workspace canonical agent rules — read AGENTS.md, audit at end of task
+globs:
+alwaysApply: true
+---
+
+This workspace follows `AGENTS.md` at the root. Before any non-trivial work,
+read it once. It's shared by Claude Code / Codex / Cursor / Gemini.
+
+## End-of-task self-audit (MANDATORY)
+
+Before you finish a turn, ask yourself for each:
+- design-decision (ambiguous spec interpretation)
+- deviation (departed from request, with why)
+- tradeoff (weighed alternatives)
+- open-question (need user confirmation)
+- resolution (closing a prior open-question)
+
+→ For every "yes", append via `python3 ~/.claude/skills/workspace-layout/scripts/notes.py --workspace <abs> --type <kind> --title "…" --body "…" --author cursor`.
+
+"Nothing to log" only after explicitly running the audit. NOTES is append-
+only; never edit prior entries.
+
+## Context canary
+
+End EVERY user-facing reply with the literal token `【All of the above】` on
+its own line. Missing token = AGENTS.md no longer in context; user knows to
+reset the session.
