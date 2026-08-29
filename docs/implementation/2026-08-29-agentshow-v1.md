@@ -167,6 +167,33 @@ ProjectDO 空类先写进 migration，避免后面改 tag。"
 
 ---
 
+## Task 1.5：Cloudflare Access 鉴权
+
+原计划没有这一项。部署上线后 Worker 是个公开 URL，任何人都能对着它聊天、烧 Workers AI 额度 —— 在合 main 之前必须有闸。
+
+**Files:** Create `agentshow/src/access.ts` · `agentshow/src/env.d.ts` · `agentshow/__tests__/access.test.ts` · `agentshow/vitest.config.ts`；Modify `agentshow/src/server.ts`
+
+**Interfaces:**
+```ts
+type AccessResult = { ok: true; email: string } | { ok: false; response: Response };
+verifyAccess(request, env, { isDev }): Promise<AccessResult>
+accessUrls(teamDomain): { issuer: string; certsUrl: URL }
+```
+
+- [x] **Step 1：Worker 级开启 Access**（dashboard，需要人操作）—— 不需要自定义域名，策略挂在 Worker 上，所有域名和预览 URL 一起被保护
+- [x] **Step 2：写 `verifyAccess`** —— `jose` 的 `jwtVerify` + `createRemoteJWKSet`，读 `cf-access-jwt-assertion`，校验 issuer 与 audience
+- [x] **Step 3：测试** —— URL 两种形式推导、dev 旁路、三种配置缺失 fail closed、缺头、非法 token
+- [x] **Step 4：接进 fetch 入口** —— 放在 `routeAgentRequest` 之前，一处同时挡住 HTTP 和 WebSocket
+- [ ] **Step 5：配两个 secret** `POLICY_AUD` / `TEAM_DOMAIN`（`wrangler secret put`），端到端验证真实 JWT
+
+三条设计约束，都不可放宽：
+
+**配置缺失时 fail closed。** `POLICY_AUD` 或 `TEAM_DOMAIN` 任一为空，生产环境返回 500。绝不能在缺配置时降级成放行 —— 那等于把「鉴权坏了」变成「没有鉴权」，而且没有任何人会发现。
+
+**token 有效但不带 email 也拒绝。** service token 之类的非人类身份能通过策略但没有邮箱。这个产品的人类成员必须有身份，放行成匿名会在 Task 4 的 members 表里留下一个无主的人。
+
+**已验证的邮箱就是 members 表的人类身份。** 不要在 Task 4 另造一套用户标识 —— 那会立刻产生两个身份系统，且没有任何一个是权威的。
+
 ## Task 2：ProjectDO 的文件与版本 —— 乐观并发
 
 这是整个系统里唯一会真正出错的地方，独立成 Task 独立过闸。

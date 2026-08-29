@@ -10,8 +10,13 @@
 
   "assets": {
     "not_found_handling": "single-page-application",
-    // agents SDK 的 WebSocket 路由必须先过 Worker，否则会被静态资源拦截。
-    "run_worker_first": ["/agents/*"]
+    "binding": "ASSETS",
+    // 所有请求都先过 Worker，鉴权之后再由 Worker 转发静态资源。
+    //
+    // 曾经写成 ["/agents/*"]，那样只有 agent 端点过 Worker，首页和 JS bundle
+    // 由静态资源直接命中，鉴权代码根本不执行 —— 部署后实测 / 返回 200。
+    // 布尔 true 是唯一能让闸覆盖全部路径的写法。
+    "run_worker_first": true
   },
 
   "durable_objects": {

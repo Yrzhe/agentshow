@@ -36,9 +36,11 @@ export default {
 
     // access.email 是已验证的人类身份，Task 4 接 members 表时从这里取。
 
-    return (
-      (await routeAgentRequest(request, env)) ||
-      new Response("Not found", { status: 404 })
-    );
+    const agentResponse = await routeAgentRequest(request, env);
+    if (agentResponse) return agentResponse;
+
+    // run_worker_first 是 true，静态资源也归 Worker 转发 —— 这样鉴权才覆盖首页和
+    // JS bundle，而不只是 agent 端点。
+    return env.ASSETS.fetch(request);
   }
 } satisfies ExportedHandler<Env>;
