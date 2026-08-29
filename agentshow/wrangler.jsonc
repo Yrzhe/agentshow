@@ -5,6 +5,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/server.ts",
 
+  // 自定义域名写在这里而不是 dashboard —— 进版本库，CI 部署能复现。
+  "routes": [{ "pattern": "agentshow.io", "custom_domain": true }],
+
   // Think 内置 workers-ai-provider，getModel() 返回模型 id 字符串即可走这个绑定。
   "ai": { "binding": "AI" },
 

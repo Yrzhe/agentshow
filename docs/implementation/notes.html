@@ -303,6 +303,34 @@ tsconfig 只需要 `{"extends": "agents/tsconfig"}`。
 
 ---
 
+## [2026-08-29T12:25:51.801Z] · deviation · claude-code
+**run_worker_first 数组形式会让鉴权只覆盖列出的路径**
+
+**症状**：Access 鉴权中间件写在 `fetch` 入口最前面，本地开发正常，
+部署后 `/` 返回 200 并正常吐出 index.html，`/assets/*.js` 也是 200，
+只有 `/agents/*` 返回 500。
+
+**根因**：`wrangler.jsonc` 里 `assets.run_worker_first` 写成了 `["/agents/*"]`。
+数组形式的含义是「只有匹配的路径路由到 User Worker」——
+**其余路径由 Asset Worker 直接服务，User Worker 根本不执行**。
+
+所以任何写在 fetch 入口的中间件（鉴权、限流、审计日志）都只对数组里列出的
+路径生效，对其他路径完全不存在。这一点在配置里看不出来，
+`run_worker_first` 这个名字听起来像"先跑 Worker"，实际是"这些路径才跑 Worker"。
+
+**修法**：
+- `run_worker_first: true`（布尔，全部路径）
+- 加 `assets.binding: "ASSETS"`，`wrangler types` 会生成 `ASSETS: Fetcher`
+- Worker 在鉴权通过后调 `env.ASSETS.fetch(request)` 转发静态资源
+
+**验证**：重新部署后实测五条路径（`/`、`/index.html`、`/assets/index-*.js`、
+`/agents/agentdo/ferrule`、一个不存在的路径）全部返回 500。
+
+**这个 bug 只有部署后才会暴露** —— 本地 `vite dev` 下静态资源走 vite 自己的
+中间件链，所有请求都会经过 Worker，看不出差别。**不要靠本地开发验证鉴权覆盖面。**
+
+---
+
 </script>
 <script type="application/json" id="issues-data">
 {"projects": []}
