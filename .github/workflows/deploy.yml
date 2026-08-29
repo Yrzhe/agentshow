@@ -1,0 +1,49 @@
+name: deploy
+
+# 只在 push 到 main 时触发。
+# 刻意不加 pull_request —— fork 来的 PR 一旦能跑这个 workflow，就拿到了部署用的 token。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同时只跑一个部署，后来的取消前面的，避免两次 deploy 互相覆盖。
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentshow
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: agentshow/package-lock.json
+
+      - run: npm ci
+
+      # worker-configuration.d.ts 不进仓库，每次构建现生成。
+      - name: 生成 Env 类型
+        run: npx wrangler types
+
+      # 类型不过就不部署 —— 部署前的唯一一道闸。
+      - name: 类型检查
+        run: npx tsc --noEmit
+
+      - name: 构建
+        run: npx vite build
+
+      # 用 vite 插件生成的解析后配置，路径和 assets 目录都由它算好。
+      - name: 部署到 Cloudflare
+        run: npx wrangler deploy --config dist/agentshow/wrangler.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
