@@ -1,15 +1,39 @@
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
 /**
- * 纯逻辑单测跑在 node 环境，不带 Cloudflare 插件 —— 它会把测试拉进 workerd，
- * 对不碰 Worker 运行时的代码是白付出的启动成本。
+ * 两个 project 并存：
  *
- * Task 2 要用 runInDurableObject 断言 DO 内部状态，那时再加
- * @cloudflare/vitest-pool-workers 的 project 配置。
+ * - node    纯逻辑单测（如 Access 的 URL 推导和失败路径），不碰 Worker 运行时，
+ *           跑在 node 里省掉 workerd 的启动成本。
+ * - workers Durable Object 测试，必须在真 workerd 里跑才能用
+ *           runInDurableObject 直接断言 DO 内部状态。
+ *
+ * cloudflareTest() 在 0.22 里返回的是 Vite 插件，不是老文档里的
+ * defineWorkersConfig 配置包装器 —— 照旧教程写会报找不到导出。
  */
 export default defineConfig({
   test: {
-    environment: "node",
-    include: ["__tests__/**/*.test.ts"]
+    projects: [
+      {
+        test: {
+          name: "node",
+          environment: "node",
+          include: ["__tests__/*.test.ts"]
+        }
+      },
+      {
+        plugins: [
+          cloudflareTest({
+            main: "./src/server.ts",
+            wrangler: { configPath: "./wrangler.jsonc" }
+          })
+        ],
+        test: {
+          name: "workers",
+          include: ["__tests__/do/*.test.ts"]
+        }
+      }
+    ]
   }
 });

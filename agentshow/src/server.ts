@@ -1,7 +1,8 @@
 import { Think } from "@cloudflare/think";
 import { routeAgentRequest } from "agents";
-import { DurableObject } from "cloudflare:workers";
 import { verifyAccess } from "./access";
+
+export { ProjectDO } from "./project";
 
 export class AgentDO extends Think<Env> {
   // 默认开启的 bash 工具会快照上千个工作区文件，对这个产品是纯负担。
@@ -21,9 +22,6 @@ export class AgentDO extends Think<Env> {
     ].join("\n");
   }
 }
-
-/** Task 2 才填内容。现在存在只是为了让 migration tag 一次定死。 */
-export class ProjectDO extends DurableObject<Env> {}
 
 export default {
   async fetch(request: Request, env: Env) {
