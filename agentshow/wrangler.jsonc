@@ -24,11 +24,18 @@
 
   "durable_objects": {
     "bindings": [
+      // 每个 (agent × project) 一个 —— 一个实例就是一条 session，
+      // 实例名是 `${agentId}:${projectId}`。
       { "class_name": "AgentDO", "name": "AgentDO" },
+      // 每个 agent 一个，装跨 project 共享的身份与记忆。
+      { "class_name": "AgentIdentityDO", "name": "AgentIdentityDO" },
       { "class_name": "ProjectDO", "name": "ProjectDO" }
     ]
   },
 
-  // ProjectDO 现在就进 migration，Task 2 才填内容 —— 改 migration tag 比多写三行麻烦。
-  "migrations": [{ "new_sqlite_classes": ["AgentDO", "ProjectDO"], "tag": "v1" }]
+  // migration 只能追加。v1 已经部署过，改它会破坏线上已存在的实例。
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AgentDO", "ProjectDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["AgentIdentityDO"] }
+  ]
 }

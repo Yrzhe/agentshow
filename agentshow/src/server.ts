@@ -1,9 +1,11 @@
 import { Think } from "@cloudflare/think";
-import type { TurnConfig, TurnContext } from "@cloudflare/think";
+import type { Session, TurnConfig, TurnContext } from "@cloudflare/think";
 import { routeAgentRequest } from "agents";
 import { verifyAccess } from "./access";
+import { parseAgentKey } from "./agent-key";
 import { projectTools } from "./agent-tools";
 
+export { AgentIdentityDO } from "./agent-identity";
 export { ProjectDO } from "./project";
 
 export class AgentDO extends Think<Env> {
@@ -16,30 +18,57 @@ export class AgentDO extends Think<Env> {
     return "@cf/moonshotai/kimi-k2.7-code";
   }
 
-  getSystemPrompt() {
-    return [
-      "你是 agentshow 里的一个 agent。",
-      "你和其他 agent 共享一个 project 的公共文件区，但你们不聊天 —— 通过文件和 @提及协作。",
-      "回答简洁，不写套话。"
-    ].join("\n");
+  /**
+   * 这个 DO 实例代表一条 session，实例名是 `${agentId}:${projectId}`。
+   * DM 的 project 位是保留字 dm。
+   */
+  get key() {
+    return parseAgentKey(this.name);
+  }
+
+  #identity() {
+    const { agentId } = this.key;
+    return this.env.AgentIdentityDO.get(
+      this.env.AgentIdentityDO.idFromName(agentId)
+    );
   }
 
   /**
-   * project 工具按轮注入，不放在 getTools()。
+   * soul 和 memory 的 provider 指向 AgentIdentityDO —— 同一个 agent 在所有
+   * project 里共享同一份身份和记忆，而每条 session 各自独立。
    *
-   * 原因：getTools() 没有参数，拿不到当前是哪个 project；而一个 agent 同时
-   * 待在多个 project 里（Session = Agent × Project），"当前 project" 是每轮
-   * 对话的属性，不是 agent 的属性。beforeTurn 的 ctx.body 带着客户端请求的
-   * 自定义字段，返回的 tools 是 additive 合并。
-   *
-   * 没带 projectId 就是 DM，只有私有盘，没有公共区工具。
+   * 注意：一旦这里加了 context block，Think 就用它们组装 system prompt，
+   * 不再调 getSystemPrompt()。人格的唯一来源是 AgentIdentityDO 里那份文档。
    */
-  beforeTurn(ctx: TurnContext): TurnConfig | void {
-    const projectId = ctx.body?.projectId;
-    if (typeof projectId !== "string" || !projectId) return;
+  configureSession(session: Session) {
+    const identity = this.#identity();
+    return session
+      .withContext("soul", {
+        provider: { get: () => identity.getIdentityDoc() }
+      })
+      .withContext("memory", {
+        description: "这个 agent 在使用中学到的东西",
+        maxTokens: 1100,
+        provider: { get: () => identity.getMemory() }
+      })
+      .withCachedPrompt();
+  }
+
+  /**
+   * project 工具按轮注入，不放在 getTools() —— 后者没有参数，拿不到上下文。
+   *
+   * project 来自 DO 实例名，不是请求 body：客户端伪造不了实例名，
+   * 但能伪造 body。走实例名等于把"这条 session 属于哪个 project"
+   * 变成路由层的事实，而不是一个可以被请求方声称的值。
+   *
+   * DM 没有 project，就只有私有盘，没有公共区工具。
+   */
+  beforeTurn(_ctx: TurnContext): TurnConfig | void {
+    const { agentId, projectId } = this.key;
+    if (!projectId) return;
 
     const stub = this.env.ProjectDO.get(this.env.ProjectDO.idFromName(projectId));
-    return { tools: projectTools(stub, this.name) };
+    return { tools: projectTools(stub, agentId) };
   }
 }
 

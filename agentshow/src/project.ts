@@ -3,6 +3,10 @@ import {
   SCHEMA,
   type FileRow,
   type FileSummary,
+  type Member,
+  type MemberKind,
+  type SessionIndexEntry,
+  type SessionStatus,
   type WriteInput,
   type WriteResult
 } from "./project-schema";
@@ -78,5 +82,90 @@ export class ProjectDO extends DurableObject<Env> {
     );
 
     return { ok: true, version: next };
+  }
+
+  // ── 成员 ──────────────────────────────────────────────────────────────
+
+  addMember(m: Member): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO members (member_id, kind, name, joined_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(member_id) DO UPDATE SET kind = excluded.kind, name = excluded.name`,
+      m.memberId,
+      m.kind,
+      m.name,
+      Date.now()
+    );
+  }
+
+  listMembers(): Member[] {
+    return this.ctx.storage.sql
+      .exec<{ member_id: string; kind: MemberKind; name: string }>(
+        "SELECT member_id, kind, name FROM members ORDER BY joined_at ASC"
+      )
+      .toArray()
+      .map((r) => ({ memberId: r.member_id, kind: r.kind, name: r.name }));
+  }
+
+  /**
+   * @提及 靠这个把名字变成 agentId。
+   * 只解析 agent —— 人类不能被 @ 醒来干活，把人解析出来会让提及链路
+   * 投递到一个不存在的 AgentDO。
+   */
+  resolveAgentByName(name: string): string | null {
+    const row = this.ctx.storage.sql
+      .exec<{ member_id: string }>(
+        "SELECT member_id FROM members WHERE name = ? AND kind = 'agent' LIMIT 1",
+        name
+      )
+      .toArray()[0];
+    return row?.member_id ?? null;
+  }
+
+  // ── session 索引 ──────────────────────────────────────────────────────
+
+  /**
+   * 一个 (agent, project) 只有一条 session，所以这里是 upsert 而不是 insert。
+   * title 和 status 都可选：只改状态时不该把标题冲掉。
+   */
+  upsertSession(e: {
+    agentId: string;
+    title?: string;
+    status?: SessionStatus;
+  }): void {
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO session_index (agent_id, title, status, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(agent_id) DO UPDATE SET
+         title      = COALESCE(?, session_index.title),
+         status     = COALESCE(?, session_index.status),
+         updated_at = ?`,
+      e.agentId,
+      e.title ?? "",
+      e.status ?? "in_progress",
+      now,
+      e.title ?? null,
+      e.status ?? null,
+      now
+    );
+  }
+
+  listSessions(): SessionIndexEntry[] {
+    return this.ctx.storage.sql
+      .exec<{
+        agent_id: string;
+        title: string;
+        status: SessionStatus;
+        updated_at: number;
+      }>(
+        "SELECT agent_id, title, status, updated_at FROM session_index ORDER BY updated_at DESC"
+      )
+      .toArray()
+      .map((r) => ({
+        agentId: r.agent_id,
+        title: r.title,
+        status: r.status,
+        updatedAt: r.updated_at
+      }));
   }
 }

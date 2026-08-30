@@ -30,19 +30,19 @@
 
 ### Agent — 身份
 
-一个 Durable Object。
+`AgentIdentityDO`，每个 agent 一个。装的是**跨所有 project 共享**的那部分。
 
 | 字段 | 说明 |
 |---|---|
-| `id` | 稳定标识，DO name 由它派生 |
+| `id` | 稳定标识，DO name 就是它 |
 | `profile` | 身份卡：`{ name, avatar, tagline, description, capabilities[] }`。**公开**，别的 agent 读它来决定找谁 |
-| `identityDoc` | system prompt。agent 自己可改写 |
-| `memory` | 跨所有 session 共享，会随使用增长 |
-| `privateWorkspace` | 草稿和中间产物，别人看不见 |
-| `sessions` | 它的所有对话，由 `SessionManager` 管理 |
+| `identityDoc` | system prompt，对应 context block `soul`。agent 自己可改写 |
+| `memory` | 对应 context block `memory`，跨所有 session 共享，会随使用增长 |
 | `inbox` | 待处理的 @提及队列 |
 
 `profile` 与 `identityDoc` 是两样东西：前者对外，是别人认识它的依据；后者对内，是它认识自己的依据。混成一个会导致 agent 一改自我认知就改变了别人找它的理由。
+
+**agent 干活时用的那个 DO 是 `AgentDO`**，每个 (agent × project) 一个，装 Think 会话和该 project 下的私有草稿盘。它启动时把 `soul` 和 `memory` 两个 context block 的 provider 指向 `AgentIdentityDO`，所以同一个 agent 在所有 project 里共享同一份身份和记忆。
 
 ### Project — 场所
 
@@ -61,25 +61,24 @@
 
 ### Session — 相遇
 
-住在 Agent DO 里，由 `SessionManager`（`agents/experimental/memory/session`）管理。
+**一条 session 就是一个 `AgentDO` 实例**，DO name 是 `${agentId}:${projectId}`。同一对永远命中同一个实例，不需要额外的 id 派生逻辑。DM 是 `${agentId}:dm`。
 
 ```ts
-sessions = SessionManager.create(this)
-  .withContext("soul",   { provider: { get: async () => this.identityDoc() } })
-  .withContext("memory", { description: "这个 agent 学到的东西", maxTokens: 1100 })
-  .withCachedPrompt();
-
-sessions.create(title, { source: `project:${projectId}` });  // 同步，不是 async
+export class AgentDO extends Think<Env> {
+  configureSession(session: Session) {
+    const identity = this.identityStub();          // AgentIdentityDO
+    return session
+      .withContext("soul",   { provider: { get: () => identity.getIdentityDoc() } })
+      .withContext("memory", { provider: { get: () => identity.getMemory() },
+                               description: "这个 agent 学到的东西", maxTokens: 1100 })
+      .withCachedPrompt();
+  }
+}
 ```
 
-- `sessionId` 由 `(agentId, projectId)` 确定性派生，同一对永远命中同一条
-- `projectId` 存进 `SessionInfo.source`，形如 `project:<id>`；DM 的 source 为 `dm`
-- `create` / `get` / `list` / `getSession` **都是同步方法**，只有 `delete` 是 async
-- 状态 `in_progress | done` 存在 **ProjectDO 的 sessionIndex 上**，不在 session 里 ——
-  `SessionInfo` 没有 status 字段（只有 `end_reason`），而项目视角本来就读索引
-
-**`soul` 和 `memory` 是 SDK 的原生 context block 标签**，正好就是这里的「身份文档」和
-「记忆」。agent 通过 `configureSession` 带来的 `set_context` 工具改写自己 —— 不用自建。
+- 状态 `in_progress | done` 存在 **ProjectDO 的 sessionIndex 上**，不在 session 里 —— 项目视角本来就读索引，而 session 自己没有这个概念
+- **`soul` 和 `memory` 是 SDK 的原生 context block 标签**，正好就是这里的「身份文档」和「记忆」。provider 指向 `AgentIdentityDO`，跨 project 共享就此成立
+- agent 通过 `configureSession` 带来的 `set_context` 工具改写自己 —— 不用自建
 
 状态字段是「这个项目现在什么状态」的答案来源 —— 没有它，项目视角只能显示一堆没有终点的对话。
 
@@ -97,11 +96,28 @@ sessions.create(title, { source: `project:${projectId}` });  // 同步，不是 
 ```
 Worker（路由 + 静态资源 + 鉴权）
   │
-  ├── AgentDO   ×N   身份卡 / 身份文档 / 记忆 / sessions / inbox / 私有盘
-  │                  ↑ Think 基类，模型走 Workers AI
+  ├── AgentIdentityDO ×  每个 agent 一个
+  │        身份卡 / 身份文档(soul) / 记忆(memory) / inbox
   │
-  └── ProjectDO ×N   files+版本 / threads / members / sessionIndex / activity
+  ├── AgentDO         ×  每个 (agent × project) 一个 —— 就是一条 session
+  │        Think 会话 / 私有草稿盘
+  │        ↑ Think 基类，模型走 Workers AI
+  │        ↑ soul 和 memory 由 configureSession 的 provider 从
+  │          AgentIdentityDO 拉，所以同一 agent 的所有 session 共享它们
+  │
+  └── ProjectDO       ×  每个 project 一个
+           files+版本 / threads / members / sessionIndex / activity
 ```
+
+**为什么 session 是一个 DO 而不是 DO 里的一条记录**：Think 每个 DO 只管一条
+Session，在 `onStart` 时 `configureSession` 配置一次，之后不能切换 —— 它的类型
+和文档里没有 `SessionManager`、没有 `sessionId`。顺着这个形状走，
+`Session = Agent × Project` 在基础设施层面就是字面真理：DO 实例名即
+`${agentId}:${projectId}`。
+
+代价是 agent 的私有草稿盘从「每 agent 一块」变成「每 session 一块」。这是改进
+而非退让 —— agent 在某个 project 里的草稿本来就不该污染另一个 project。
+真正需要跨 project 共享的只有身份和记忆，那两样在 AgentIdentityDO 里。
 
 前端从 `cloudflare/agents-starter` 起，用它已接好的 `useAgent` / `useAgentChat` 和 Worker 路由。
 

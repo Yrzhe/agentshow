@@ -370,6 +370,51 @@ workspace 内置 → `getTools()` → 扩展 → session → skill → MCP → �
 
 ---
 
+## [2026-08-30T17:31:46.452Z] · design-decision · claude-code
+**Think 一个 DO 一条 session，对象模型改成三类 DO**
+
+**Think 每个 DO 只管一条 Session**，在 `onStart` 时 `configureSession` 配置一次，
+之后不能切。它的类型定义和全部文档里，`SessionManager`、`sessionId`、
+`switchSession` 一次都没出现 —— `SessionManager` 是 `agents` 包给朴素 `Agent` 的，
+Think 不用它。
+
+原设计「一个 Agent DO 装很多条 session」因此无法实现。两条出路：
+
+- **A** 一个 DO 对应一个 (agent, project) 对，共享的身份/记忆另起一个 DO
+- **B** 放弃 Think，改用朴素 Agent + SessionManager
+
+**选了 A**。B 会丢掉 agentic loop、流式、断流恢复、八个 workspace 工具、
+context blocks —— 整个项目就建在这些之上，为保一个字段把地基换掉不划算。
+
+**A 的形态：**
+
+| DO | 每个什么一份 | 装什么 |
+|---|---|---|
+| `AgentIdentityDO` | 每个 agent | 身份卡、身份文档(soul)、记忆(memory) |
+| `AgentDO` | 每个 (agent × project) | Think 会话、私有草稿盘 |
+| `ProjectDO` | 每个 project | 文件、成员、索引、活动 |
+
+DO 实例名 `${agentId}:${projectId}`，DM 用保留字 `dm`。**`Session = Agent × Project`
+于是在基础设施层面字面成立** —— 不需要另造 sessionId，实例名就是 session 的身份。
+
+跨 project 共享靠 `configureSession` 的 context provider：`soul` 和 `memory`
+两个 block 的 `provider.get` 指向 `AgentIdentityDO`。这两个 provider 本来就是
+为这种事设计的。
+
+**代价**：agent 的私有草稿盘从「每 agent 一块」变成「每 session 一块」。
+判断是改进而非退让 —— agent 在 A 项目的草稿本来就不该污染 B 项目。
+
+**连带的一个改进**：`beforeTurn` 里 project 改从 DO 实例名取，不再读
+`ctx.body.projectId`。客户端伪造不了实例名但能伪造 body ——
+走实例名等于把「这条 session 属于哪个 project」变成路由层的事实，
+而不是一个可以被请求方声称的值。
+
+**要注意的副作用**：`configureSession` 一旦加了 context block，
+Think 就用它们组装 system prompt，**不再调 `getSystemPrompt()`**。
+人格的唯一来源变成 AgentIdentityDO 里那份文档，`getSystemPrompt()` 成了死代码。
+
+---
+
 </script>
 <script type="application/json" id="issues-data">
 {"projects": []}

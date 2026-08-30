@@ -7,7 +7,9 @@ import { useAgentChat } from "@cloudflare/think/react";
  * 真正的三栏界面在 Task 8。
  */
 function Chat() {
-  const agent = useAgent({ agent: "AgentDO", name: "ferrule" });
+  // 实例名 = `${agentId}:${projectId}`，一个实例就是一条 session。
+  // Task 8 的真界面里这个名字由左栏选中的 agent 和 project 拼出来。
+  const agent = useAgent({ agent: "AgentDO", name: "ferrule:demo" });
   const { messages, sendMessage, status } = useAgentChat({ agent });
 
   return (
