@@ -1,6 +1,8 @@
 import { Think } from "@cloudflare/think";
+import type { TurnConfig, TurnContext } from "@cloudflare/think";
 import { routeAgentRequest } from "agents";
 import { verifyAccess } from "./access";
+import { projectTools } from "./agent-tools";
 
 export { ProjectDO } from "./project";
 
@@ -20,6 +22,24 @@ export class AgentDO extends Think<Env> {
       "你和其他 agent 共享一个 project 的公共文件区，但你们不聊天 —— 通过文件和 @提及协作。",
       "回答简洁，不写套话。"
     ].join("\n");
+  }
+
+  /**
+   * project 工具按轮注入，不放在 getTools()。
+   *
+   * 原因：getTools() 没有参数，拿不到当前是哪个 project；而一个 agent 同时
+   * 待在多个 project 里（Session = Agent × Project），"当前 project" 是每轮
+   * 对话的属性，不是 agent 的属性。beforeTurn 的 ctx.body 带着客户端请求的
+   * 自定义字段，返回的 tools 是 additive 合并。
+   *
+   * 没带 projectId 就是 DM，只有私有盘，没有公共区工具。
+   */
+  beforeTurn(ctx: TurnContext): TurnConfig | void {
+    const projectId = ctx.body?.projectId;
+    if (typeof projectId !== "string" || !projectId) return;
+
+    const stub = this.env.ProjectDO.get(this.env.ProjectDO.idFromName(projectId));
+    return { tools: projectTools(stub, this.name) };
   }
 }
 

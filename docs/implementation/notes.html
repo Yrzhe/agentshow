@@ -331,6 +331,45 @@ tsconfig 只需要 `{"extends": "agents/tsconfig"}`。
 
 ---
 
+## [2026-08-30T16:14:49.557Z] · deviation · claude-code
+**Task 3：project 工具改用 beforeTurn 注入，不能挂 getTools**
+
+**计划里 Task 3 Step 4 写的是把 project 工具挂在 `getTools()` 上，
+用 `this.currentProjectId()` 取当前 project。实现时发现这个设计是错的，已改。**
+
+两个原因：
+
+1. **`getTools()` 没有参数**，拿不到任何上下文。文档确认签名是 `getTools(): ToolSet`。
+
+2. **更根本的：agent 同时待在多个 project 里。** `Session = Agent × Project`，
+   一个 agent 在 5 个 project 里就有 5 条 session。"当前是哪个 project"
+   是**每一轮对话**的属性，不是 agent 的属性。任何挂在 agent 上的
+   `currentProjectId` 字段都表达不了这件事，Task 4 一定会推翻它。
+
+**正确做法：`beforeTurn(ctx)`。**
+
+文档里 `TurnContext` 有 `body: Record<string, unknown>`（客户端请求的自定义字段），
+返回的 `TurnConfig.tools` 说明是 "Extra tools to merge (**additive**)"。所以：
+
+```ts
+beforeTurn(ctx: TurnContext): TurnConfig | void {
+  const projectId = ctx.body?.projectId;
+  if (typeof projectId !== "string" || !projectId) return;
+  const stub = this.env.ProjectDO.get(this.env.ProjectDO.idFromName(projectId));
+  return { tools: projectTools(stub, this.name) };
+}
+```
+
+没带 projectId 就是 DM —— 只有私有盘，没有公共区工具。这个降级是对的，
+不是缺陷。
+
+**顺带确认的合并顺序**（文档 tools.md）：
+workspace 内置 → `getTools()` → 扩展 → session → skill → MCP → 客户端，
+**后者覆盖先前**。所以自定义工具跟内置八个之一同名会静默顶掉它，不报错。
+已加自动化断言防这个。
+
+---
+
 </script>
 <script type="application/json" id="issues-data">
 {"projects": []}
