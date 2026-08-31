@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   SCHEMA,
+  type ActivityRow,
+  type ActivityVerb,
   type FileComment,
   type FileRow,
   type FileSummary,
@@ -54,6 +56,15 @@ export class ProjectDO extends DurableObject<Env> {
     const currentVersion = current?.version ?? 0;
 
     if (input.baseVersion !== currentVersion) {
+      // 记下这次撞车。没有这条，乐观并发在界面上就完全看不见了 ——
+      // 活动流只会剩一条平淡的「写入 v3」，把整个故事吃掉。
+      this.#record({
+        actorId: input.authorId,
+        verb: "rejected",
+        targetType: "file",
+        targetId: input.path,
+        detail: `base ${input.baseVersion} vs current ${currentVersion}`
+      });
       return {
         ok: false,
         reason: "stale",
@@ -82,7 +93,96 @@ export class ProjectDO extends DurableObject<Env> {
       now
     );
 
+    this.#record({
+      actorId: input.authorId,
+      verb: next === 1 ? "created" : "updated",
+      targetType: "file",
+      targetId: input.path,
+      detail: `v${next}`
+    });
+
     return { ok: true, version: next };
+  }
+
+  // ── 活动流 ────────────────────────────────────────────────────────────
+
+  /**
+   * 只有登记为 human 的成员才是人。不在成员表里的作者按 agent 记 ——
+   * agent 是从工具调用里冒出来的，可能还没被显式加进成员表；
+   * 人类必须先通过 Access 登录、被加成成员才能操作，一定在表里。
+   */
+  #kindOf(actorId: string): MemberKind {
+    const row = this.ctx.storage.sql
+      .exec<{ kind: MemberKind }>(
+        "SELECT kind FROM members WHERE member_id = ?",
+        actorId
+      )
+      .toArray()[0];
+    return row?.kind === "human" ? "human" : "agent";
+  }
+
+  #record(a: {
+    actorId: string;
+    verb: ActivityVerb;
+    targetType: ActivityRow["targetType"];
+    targetId: string;
+    detail?: string;
+  }): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO activity (actor_id, actor_kind, verb, target_type, target_id, detail, at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      a.actorId,
+      this.#kindOf(a.actorId),
+      a.verb,
+      a.targetType,
+      a.targetId,
+      a.detail ?? null,
+      Date.now()
+    );
+  }
+
+  listActivity(limit = 50): ActivityRow[] {
+    return this.ctx.storage.sql
+      .exec<{
+        id: number;
+        actor_id: string;
+        actor_kind: MemberKind;
+        verb: ActivityVerb;
+        target_type: ActivityRow["targetType"];
+        target_id: string;
+        detail: string | null;
+        at: number;
+      }>(
+        `SELECT id, actor_id, actor_kind, verb, target_type, target_id, detail, at
+         FROM activity ORDER BY id DESC LIMIT ?`,
+        limit
+      )
+      .toArray()
+      .map((r) => ({
+        id: r.id,
+        actorId: r.actor_id,
+        actorKind: r.actor_kind,
+        verb: r.verb,
+        targetType: r.target_type,
+        targetId: r.target_id,
+        detail: r.detail,
+        at: r.at
+      }));
+  }
+
+  /** 提及的活动记录由 deliverMention 在投递成功后调用。 */
+  recordMention(m: {
+    fromAgentId: string;
+    toAgentId: string;
+    path: string;
+  }): void {
+    this.#record({
+      actorId: m.fromAgentId,
+      verb: "mentioned",
+      targetType: "file",
+      targetId: m.path,
+      detail: m.toAgentId
+    });
   }
 
   // ── 讨论线程 ──────────────────────────────────────────────────────────
@@ -108,6 +208,14 @@ export class ProjectDO extends DurableObject<Env> {
       file?.version ?? 0,
       Date.now()
     );
+
+    this.#record({
+      actorId: c.authorId,
+      verb: "commented",
+      targetType: "file",
+      targetId: c.path,
+      detail: c.anchor
+    });
   }
 
   listComments(path: string): FileComment[] {

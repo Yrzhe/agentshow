@@ -57,5 +57,13 @@ export async function deliverMention(
     depth: input.depth
   });
 
+  // 投递成功才记活动 —— 记在前面的话，被拒的提及也会出现在活动流里，
+  // 界面上就成了「A 提及了 B」但 B 从没醒过。
+  await project.recordMention({
+    fromAgentId: input.fromAgentId,
+    toAgentId,
+    path: input.path
+  });
+
   return { ok: true, toAgentId };
 }

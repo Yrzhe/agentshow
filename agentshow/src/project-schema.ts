@@ -36,6 +36,22 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 CREATE INDEX IF NOT EXISTS comments_by_path ON comments (path, id);
 
+-- actor_kind 写进 schema，不让前端去推断。
+-- 前端一旦要靠「这个 id 看起来像邮箱所以是人」来猜，
+-- 第一个用 agent 名当邮箱的人就会把它猜错 —— 而这个产品的整个主张
+-- 就是「活动流的主语可以是 agent」，猜错它等于把主张搞反。
+CREATE TABLE IF NOT EXISTS activity (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_id    TEXT NOT NULL,
+  actor_kind  TEXT NOT NULL CHECK (actor_kind IN ('human', 'agent')),
+  verb        TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id   TEXT NOT NULL,
+  detail      TEXT,
+  at          INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS activity_by_time ON activity (id DESC);
+
 CREATE TABLE IF NOT EXISTS session_index (
   agent_id   TEXT PRIMARY KEY,
   title      TEXT NOT NULL DEFAULT '',
@@ -62,6 +78,27 @@ export type FileComment = {
   /** 这条评论针对的是文件哪一版。文件还不存在时为 0。 */
   fileVersion: number;
   createdAt: number;
+};
+
+export type ActivityVerb =
+  | "created"
+  | "updated"
+  /** 写入撞上了别人的改动。记它是因为：没有这条，乐观并发在界面上就消失了。 */
+  | "rejected"
+  | "commented"
+  | "mentioned"
+  | "joined"
+  | "completed";
+
+export type ActivityRow = {
+  id: number;
+  actorId: string;
+  actorKind: MemberKind;
+  verb: ActivityVerb;
+  targetType: "file" | "thread" | "session" | "member";
+  targetId: string;
+  detail: string | null;
+  at: number;
 };
 
 export type SessionStatus = "in_progress" | "done";
