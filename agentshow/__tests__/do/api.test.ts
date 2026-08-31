@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { scoped } from "../../src/agent-key";
 import { handleApi } from "../../src/api";
 import type {
   AgentCardView,
@@ -105,7 +106,10 @@ describe("handleApi", () => {
   });
 
   it("文件列表把评论数并进去，一次查完", async () => {
-    const project = env.ProjectDO.get(env.ProjectDO.idFromName("pricing"));
+    // 实例名带所有者前缀 —— 裸 "pricing" 现在是另一个人的 project。
+    const project = env.ProjectDO.get(
+      env.ProjectDO.idFromName(scoped(ME, "pricing"))
+    );
     project.writeFile({
       path: "pricing-table.tsx",
       content: "v1",

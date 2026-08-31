@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/think/react";
+import { agentKey } from "../agent-key";
 import type { MemberView } from "../api-types";
 import { Avatar } from "./Avatar";
 import { ArrowLeftIcon, SendIcon } from "./icons";
@@ -15,6 +16,7 @@ import { ArrowLeftIcon, SendIcon } from "./icons";
 export function Chat({
   agentId,
   projectId,
+  owner,
   agent: profile,
   meName,
   firstPrompt,
@@ -22,13 +24,20 @@ export function Chat({
 }: {
   agentId: string;
   projectId: string;
+  /** Access 验过的邮箱，DO 实例名的前缀。 */
+  owner: string;
   agent?: MemberView;
   meName: string;
   /** 从输入框直接开的会话，挂载后自动发一次。 */
   firstPrompt?: string;
   onBack: () => void;
 }) {
-  const agent = useAgent({ agent: "AgentDO", name: `${agentId}:${projectId}` });
+  // 实例名带所有者前缀。服务端的 checkAgentRoute 会拿它跟 Access 验过的
+  // 邮箱比对 —— 这里拼错只会被 403，拼不出别人的 session。
+  const agent = useAgent({
+    agent: "AgentDO",
+    name: agentKey(owner, agentId, projectId)
+  });
   const { messages, sendMessage, status } = useAgentChat({ agent });
 
   const sent = useRef(false);

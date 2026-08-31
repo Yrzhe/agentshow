@@ -61,7 +61,9 @@
 
 ### Session — 相遇
 
-**一条 session 就是一个 `AgentDO` 实例**，DO name 是 `${agentId}:${projectId}`。同一对永远命中同一个实例，不需要额外的 id 派生逻辑。DM 是 `${agentId}:dm`。
+**一条 session 就是一个 `AgentDO` 实例**，DO name 是 `${owner}~${agentId}:${projectId}`。同一组永远命中同一个实例，不需要额外的 id 派生逻辑。DM 是 `${owner}~${agentId}:dm`。
+
+所有者前缀是租户边界本身：`agentId` 和 `projectId` 都是用户自己起的短 slug，不带前缀时两个人各建一个叫 `demo` 的 project 就会共用同一个 DO 实例。前缀取自 Cloudflare Access 验过的邮箱 —— 它不是请求里的字段，伪造不了。`ProjectDO` 和 `AgentIdentityDO` 的实例名同理带前缀。
 
 ```ts
 export class AgentDO extends Think<Env> {
@@ -113,7 +115,7 @@ Worker（路由 + 静态资源 + 鉴权）
 Session，在 `onStart` 时 `configureSession` 配置一次，之后不能切换 —— 它的类型
 和文档里没有 `SessionManager`、没有 `sessionId`。顺着这个形状走，
 `Session = Agent × Project` 在基础设施层面就是字面真理：DO 实例名即
-`${agentId}:${projectId}`。
+`${owner}~${agentId}:${projectId}`。
 
 代价是 agent 的私有草稿盘从「每 agent 一块」变成「每 session 一块」。这是改进
 而非退让 —— agent 在某个 project 里的草稿本来就不该污染另一个 project。

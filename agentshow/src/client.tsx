@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { MeView, ProjectView } from "./api-types";
 import { Chat } from "./ui/Chat";
@@ -31,7 +31,15 @@ function App() {
   // 详情压在右栏的某个 tab 上。放在这里而不是 ProjectPanel 里面，
   // 是因为左栏点一个 agent 也要能打开它的身份卡。
   const [detail, setDetail] = useState<Detail>(null);
-  const [error, setError] = useState<string | null>(null);
+  /** 起不来才算致命。只有首次 /api/me 失败会置上它。 */
+  const [fatal, setFatal] = useState<string | null>(null);
+  /** 轮询暂时失败。界面照常可用，只在角落挂一条。 */
+  const [stale, setStale] = useState<string | null>(null);
+
+  // 当前选中的 project，给异步回调看的。用 ref 不用 state：
+  // 回调要的是「响应落地那一刻的选中值」，不是它被创建时闭包捕获的那个。
+  const currentProject = useRef<string | null>(null);
+  currentProject.current = projectId;
 
   useEffect(() => {
     api<MeView>("/api/me")
@@ -39,14 +47,37 @@ function App() {
         setMe(m);
         setProjectId((cur) => cur ?? m.projects[0]?.projectId ?? null);
       })
-      .catch((e) => setError(String(e)));
+      // 只有这一次失败是致命的：没有它连左栏都画不出来。
+      .catch(() => setFatal("连不上服务器。刷新页面再试一次。"));
   }, []);
 
+  /**
+   * 轮询失败不接管界面。
+   *
+   * 之前是 `.catch(e => setError(String(e)))` 加一句 `if (error) return <Center>`，
+   * 而全文件没有一次把 error 清回 null —— 于是 4 秒一次的轮询里任何一次抖动
+   * （agent 正在推理、DO 冷启、Wi-Fi 掉一拍）都会把左中右三栏永久换成一行
+   * `Error: /api/projects/pricing → 500`，之后再多成功的轮询也救不回来。
+   *
+   * 现在：成功就清掉提示，失败只在角落挂一条，界面照常可用。
+   */
   const reload = useCallback(() => {
     if (!projectId) return;
-    api<ProjectView>(`/api/projects/${projectId}`)
-      .then(setProject)
-      .catch((e) => setError(String(e)));
+
+    // 记下这次请求是为哪个 project 发的。迟到的响应不许覆盖已经切走的界面 ——
+    // 否则用户会在 B 项目里看到 A 项目的文件，点进去留的评论也落进 A。
+    const forProject = projectId;
+
+    api<ProjectView>(`/api/projects/${forProject}`)
+      .then((p) => {
+        if (currentProject.current !== forProject) return;
+        setProject(p);
+        setStale(null);
+      })
+      .catch(() => {
+        if (currentProject.current !== forProject) return;
+        setStale("连接不稳定，正在重试");
+      });
   }, [projectId]);
 
   useEffect(() => {
@@ -67,7 +98,7 @@ function App() {
     return () => clearInterval(timer);
   }, [projectId, reload]);
 
-  if (error) return <Center>{error}</Center>;
+  if (fatal) return <Center>{fatal}</Center>;
   if (!me) return <Center>正在加载</Center>;
 
   const projectAgents =
@@ -87,9 +118,10 @@ function App() {
       ) : open ? (
         <Chat
           // 换 agent 就是换一个 DO 实例，重挂载比在 hook 里换连接可靠。
-          key={`${open.agentId}:${projectId}`}
+          key={`${me.email}~${open.agentId}:${projectId}`}
           agentId={open.agentId}
           projectId={projectId}
+          owner={me.email}
           agent={projectAgents.find((a) => a.memberId === open.agentId)}
           meName={me.name}
           firstPrompt={open.prompt}
@@ -104,6 +136,13 @@ function App() {
           agents={projectAgents}
           onOpen={(agentId, prompt) => setOpen({ agentId, prompt })}
         />
+      )}
+
+      {stale && (
+        // 角落里的一条，不接管界面。轮询一成功就消失。
+        <div className="fixed bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-[#121313]/85 px-3 py-1.5 text-white text-[11px]/4">
+          {stale}
+        </div>
       )}
 
       {project && (

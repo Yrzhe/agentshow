@@ -8,6 +8,7 @@ import type {
   MemberView,
   ProjectView
 } from "./api-types";
+import { scoped } from "./agent-key";
 import { deliverMention } from "./mention";
 import type { Member } from "./project-schema";
 import type { WorkspaceDO } from "./workspace";
@@ -74,10 +75,16 @@ function displayName(email: string): string {
   return email.split("@")[0] || email;
 }
 
-async function agentViews(env: Env, agentIds: string[]): Promise<MemberView[]> {
+async function agentViews(
+  env: Env,
+  owner: string,
+  agentIds: string[]
+): Promise<MemberView[]> {
   const profiles = await Promise.all(
     agentIds.map((id) =>
-      env.AgentIdentityDO.get(env.AgentIdentityDO.idFromName(id)).getProfile()
+      env.AgentIdentityDO.get(
+        env.AgentIdentityDO.idFromName(scoped(owner, id))
+      ).getProfile()
     )
   );
   return agentIds.map((id, i) => toAgentView(id, profiles[i]));
@@ -99,10 +106,13 @@ function toAgentView(agentId: string, p: AgentProfile): MemberView {
 
 async function projectView(
   env: Env,
+  owner: string,
   projectId: string,
   name: string
 ): Promise<ProjectView> {
-  const project = env.ProjectDO.get(env.ProjectDO.idFromName(projectId));
+  const project = env.ProjectDO.get(
+    env.ProjectDO.idFromName(scoped(owner, projectId))
+  );
 
   const [members, files, counts, activity, sessions] = await Promise.all([
     project.listMembers(),
@@ -117,7 +127,7 @@ async function projectView(
     members.map((m) =>
       m.kind === "agent"
         ? env.AgentIdentityDO.get(
-            env.AgentIdentityDO.idFromName(m.memberId)
+            env.AgentIdentityDO.idFromName(scoped(owner, m.memberId))
           ).getProfile()
         : Promise.resolve(null)
     )
@@ -178,7 +188,7 @@ export async function handleApi(
       email,
       name: displayName(email),
       projects,
-      agents: await agentViews(env, agentIds)
+      agents: await agentViews(env, email, agentIds)
     };
     return json(me);
   }
@@ -190,7 +200,7 @@ export async function handleApi(
     const { agentId, soul, ...profile } = parsed.data;
 
     const identity = env.AgentIdentityDO.get(
-      env.AgentIdentityDO.idFromName(agentId)
+      env.AgentIdentityDO.idFromName(scoped(email, agentId))
     );
     await identity.setProfile(profile);
     if (soul) await identity.setIdentityDoc(soul);
@@ -201,7 +211,7 @@ export async function handleApi(
 
   // GET /api/agents/:id —— 身份卡
   if (method === "GET" && parts[0] === "agents" && parts.length === 2) {
-    return agentCard(env, workspace, parts[1]);
+    return agentCard(env, workspace, email, parts[1]);
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -221,7 +231,9 @@ export async function handleApi(
       kind: "human",
       name: displayName(email)
     };
-    await env.ProjectDO.get(env.ProjectDO.idFromName(projectId)).addMember(me);
+    await env.ProjectDO.get(
+      env.ProjectDO.idFromName(scoped(email, projectId))
+    ).addMember(me);
 
     return json({ projectId, name }, 201);
   }
@@ -236,7 +248,7 @@ export async function handleApi(
 
   // GET /api/projects/:id —— 右栏四个 tab 的全部数据
   if (method === "GET" && parts.length === 2) {
-    return json(await projectView(env, projectId, ref.name));
+    return json(await projectView(env, email, projectId, ref.name));
   }
 
   // POST /api/projects/:id/members —— 把自己的 agent 拉进 project
@@ -251,10 +263,12 @@ export async function handleApi(
     if (!mine.includes(agentId)) return json({ error: "unknown agent" }, 400);
 
     const profile = await env.AgentIdentityDO.get(
-      env.AgentIdentityDO.idFromName(agentId)
+      env.AgentIdentityDO.idFromName(scoped(email, agentId))
     ).getProfile();
 
-    await env.ProjectDO.get(env.ProjectDO.idFromName(projectId)).addMember(
+    await env.ProjectDO.get(
+      env.ProjectDO.idFromName(scoped(email, projectId))
+    ).addMember(
       { memberId: agentId, kind: "agent", name: profile.name || agentId },
       email
     );
@@ -262,7 +276,9 @@ export async function handleApi(
     return json({ ok: true }, 201);
   }
 
-  const project = env.ProjectDO.get(env.ProjectDO.idFromName(projectId));
+  const project = env.ProjectDO.get(
+    env.ProjectDO.idFromName(scoped(email, projectId))
+  );
 
   // GET /api/projects/:id/file?path=… —— 文件详情
   //
@@ -307,6 +323,7 @@ export async function handleApi(
     if (!parsed.success) return json({ error: parsed.error.issues }, 400);
 
     const result = await deliverMention(env, {
+      owner: email,
       projectId,
       fromId: email,
       // 人发起的是第 0 跳。链条从这里开始计数，被叫的 agent 再 @ 别人是第 1 跳。
@@ -328,13 +345,14 @@ export async function handleApi(
 async function agentCard(
   env: Env,
   workspace: DurableObjectStub<WorkspaceDO>,
+  owner: string,
   agentId: string
 ): Promise<Response> {
   const mine = await workspace.listAgents();
   if (!mine.includes(agentId)) return json({ error: "not found" }, 404);
 
   const identity = env.AgentIdentityDO.get(
-    env.AgentIdentityDO.idFromName(agentId)
+    env.AgentIdentityDO.idFromName(scoped(owner, agentId))
   );
   const [profile, identityDoc, all] = await Promise.all([
     identity.getProfile(),
@@ -344,7 +362,9 @@ async function agentCard(
 
   const membership = await Promise.all(
     all.map((p) =>
-      env.ProjectDO.get(env.ProjectDO.idFromName(p.projectId)).hasMember(agentId)
+      env.ProjectDO.get(
+        env.ProjectDO.idFromName(scoped(owner, p.projectId))
+      ).hasMember(agentId)
     )
   );
 

@@ -1,4 +1,4 @@
-import { agentKey } from "./agent-key";
+import { agentKey, scoped } from "./agent-key";
 
 /**
  * @提及：让另一个 agent 动起来的唯一通道。
@@ -16,7 +16,38 @@ import { agentKey } from "./agent-key";
  */
 export const MAX_MENTION_DEPTH = 3;
 
+/**
+ * 深度写进消息本身，不存 DO。
+ *
+ * 存过：一个 `agentshow:mentionDepth` 键，投递时写、beforeTurn 时读、轮末删。
+ * 那是错的 —— 两条提及排队到同一个 agent 时，后到的把先到的深度覆盖掉，
+ * 而先跑完的那一轮又会把还没轮到的那条的深度删掉。环的防护于是双向失效：
+ * 既误拦合法的第 2 跳，也放行本该拦住的第 4 跳。
+ *
+ * Think 的文档写明「submission 的消息只在它自己那一轮开始执行时才进 Session」，
+ * 所以 beforeTurn 看到的最后一条用户消息就是这一轮那条提及。
+ * 让每条消息自己带着深度，就没有任何跨轮共享的状态可以被覆盖。
+ *
+ * 这句话对模型也是有用的信息（「你已经在链子深处了」），所以它是正文的一部分，
+ * 不是藏起来的标记。人在对话框里手打它最多把自己的深度抬高、更早被拦。
+ */
+export function depthLine(depth: number): string {
+  return `（这是提及链的第 ${depth} 跳，最多 ${MAX_MENTION_DEPTH} 跳）`;
+}
+
+const DEPTH_RE = /（这是提及链的第 (\d+) 跳，最多 \d+ 跳）/;
+
+/** 从一段消息正文里读回深度。人类发起的轮次没有这行标记，返回 0。 */
+export function depthInText(text: string): number {
+  const hit = text.match(DEPTH_RE);
+  if (!hit) return 0;
+  const n = Number(hit[1]);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
 export type MentionInput = {
+  /** Access 验过的所有者邮箱。所有 DO 实例名都带它做前缀。 */
+  owner: string;
   projectId: string;
   /**
    * 发起方。可以是 agent，也可以是人 —— 人在文件详情里 @ 一个 agent
@@ -28,12 +59,21 @@ export type MentionInput = {
   message: string;
   /** 当前这一轮所处的提及深度。人类发起的轮次是 0。 */
   depth: number;
+  /**
+   * 这次提及动作自己的 id，用来做重投幂等。
+   *
+   * 不给就现生成一个，也就是「每次调用都是一次新的提及」。
+   * 网络重试要复用同一条动作时才需要显式传。
+   */
+  mentionId?: string;
 };
 
 export type MentionResult =
   | { ok: true; toAgentId: string }
   | { ok: false; reason: "max_depth" }
-  | { ok: false; reason: "unknown_agent" };
+  | { ok: false; reason: "unknown_agent" }
+  /** 同一条提及被重投，目标没有新一轮。调用方不该据此宣称叫醒了谁。 */
+  | { ok: false; reason: "duplicate"; toAgentId: string };
 
 export async function deliverMention(
   env: Env,
@@ -43,7 +83,9 @@ export async function deliverMention(
     return { ok: false, reason: "max_depth" };
   }
 
-  const project = env.ProjectDO.get(env.ProjectDO.idFromName(input.projectId));
+  const project = env.ProjectDO.get(
+    env.ProjectDO.idFromName(scoped(input.owner, input.projectId))
+  );
 
   // 只解析 agent。人类没有 AgentDO，投递过去就是投进虚空 ——
   // 而且不会报错，表现为「agent 说我 @ 了它，然后什么都没发生」。
@@ -54,19 +96,22 @@ export async function deliverMention(
   if (!toAgentId) return { ok: false, reason: "unknown_agent" };
 
   const target = env.AgentDO.get(
-    env.AgentDO.idFromName(agentKey(toAgentId, input.projectId))
+    env.AgentDO.idFromName(agentKey(input.owner, toAgentId, input.projectId))
   );
 
-  await target.notifyMention({
+  const accepted = await target.notifyMention({
     fromId: input.fromId,
     fromName: fromName ?? input.fromId,
     path: input.path,
     message: input.message,
-    depth: input.depth
+    depth: input.depth,
+    mentionId: input.mentionId ?? crypto.randomUUID()
   });
 
-  // 投递成功才记活动 —— 记在前面的话，被拒的提及也会出现在活动流里，
-  // 界面上就成了「A 提及了 B」但 B 从没醒过。
+  // 没被接受就是重投，目标没有新一轮 —— 这时候记活动会让界面上出现
+  // 一条「A 提及了 B」而 B 从没醒过，正是这套东西最该避免的那种谎。
+  if (!accepted) return { ok: false, reason: "duplicate", toAgentId };
+
   await project.recordMention({
     fromId: input.fromId,
     toAgentId,

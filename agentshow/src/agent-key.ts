@@ -1,26 +1,91 @@
 /**
- * 一条 session 就是一个 AgentDO 实例，实例名是 `${agentId}:${projectId}`。
+ * DO 实例名的拼法。
  *
- * 同一对 (agent, project) 确定性地映射到同一个 DO，所以不需要另造 sessionId ——
- * DO 实例名本身就是 session 的身份。DM 用保留字 `dm` 作为 project 位。
+ * 每个实例名都带所有者前缀。**没有前缀的时候这里是个越权洞**：
+ * ProjectDO 按 `idFromName(projectId)` 寻址、AgentIdentityDO 按 `idFromName(agentId)`
+ * 寻址，而这两个 id 都是用户自己起的短 slug，于是两个人各建一个叫 `demo` 的
+ * project 就共用同一个实例。实测可复现：B 用 A 的 projectId 调一次建 project，
+ * 代码就把 B 加成了 A 那个 ProjectDO 的成员，之后 B 读得到 A 的文件。
+ *
+ * 所有者是 Cloudflare Access 验过的邮箱 —— 它不是请求里的字段，伪造不了。
  */
 
-const DM = "dm";
+/**
+ * 所有者和 slug 之间的分隔符。
+ *
+ * **不能用 `/`。** agents SDK 把实例名原样拼进 URL 路径且不编码，斜杠会变成
+ * 真正的路径分隔符 —— 实测 `/agents/agent-d-o/dev@localhost/ferrule:x/get-messages`
+ * 被切成多一段，路由拿到的名字是 `dev@localhost`，对话整个连不上
+ * （SDK 自己也会警告 "room name contains forward slash"）。
+ *
+ * `~` 在 URL 里是 unreserved，不会被编码；slug 里不会出现它，
+ * 所以按最后一个 `~` 切分即使邮箱里也有 `~` 也不会切错。
+ */
+const SCOPE_SEP = "~";
 
-export function agentKey(agentId: string, projectId: string | null): string {
-  return `${agentId}:${projectId ?? DM}`;
+/** slug 的形状。冒号和分隔符都被挡在外面，下面的解析才成立。 */
+export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/**
+ * `${owner}~${slug}` —— ProjectDO 和 AgentIdentityDO 的实例名。
+ *
+ * 用最后一个分隔符切分，不是第一个：邮箱里可以合法出现 `~`，而 slug 里不会。
+ */
+export function scoped(owner: string, slug: string): string {
+  return `${owner}${SCOPE_SEP}${slug}`;
 }
 
-export function parseAgentKey(name: string): {
-  agentId: string;
-  projectId: string | null;
-} {
-  const i = name.indexOf(":");
-  // 没有冒号的名字当 DM 处理，不抛异常 —— 路由层拿到什么名字不该由这里决定生死。
-  if (i === -1) return { agentId: name, projectId: null };
+export function unscope(name: string): { owner: string; slug: string } {
+  const cut = name.lastIndexOf(SCOPE_SEP);
+  if (cut < 0) return { owner: "", slug: name };
+  return { owner: name.slice(0, cut), slug: name.slice(cut + 1) };
+}
 
-  const agentId = name.slice(0, i);
-  const rest = name.slice(i + 1);
-  // 只按第一个冒号切，project id 里可以含冒号。
-  return { agentId, projectId: rest === DM ? null : rest };
+/**
+ * `${owner}~${agentId}:${projectId}` —— AgentDO 的实例名，一个实例就是一条 session。
+ *
+ * DM 没有 project，project 位是保留字 dm。
+ */
+export function agentKey(
+  owner: string,
+  agentId: string,
+  projectId?: string
+): string {
+  return `${owner}${SCOPE_SEP}${agentId}:${projectId ?? "dm"}`;
+}
+
+export type AgentKey = {
+  owner: string;
+  agentId: string;
+  /** DM 时为 null。 */
+  projectId: string | null;
+};
+
+/**
+ * 解析实例名。形状不对就返回 null —— 调用方必须当成拒绝，不能当成默认值。
+ *
+ * 先按最后一个 `~` 切出 owner，再按剩下部分的第一个冒号切 agentId / projectId。
+ * 顺序不能反：邮箱里可能有冒号，而分隔符之后的部分是两个 slug，两种符号都没有。
+ */
+export function parseAgentKey(name: string): AgentKey | null {
+  const cut = name.lastIndexOf(SCOPE_SEP);
+  if (cut <= 0) return null;
+
+  const owner = name.slice(0, cut);
+  const rest = name.slice(cut + 1);
+
+  const colon = rest.indexOf(":");
+  if (colon <= 0) return null;
+
+  const agentId = rest.slice(0, colon);
+  const projectSlot = rest.slice(colon + 1);
+
+  if (!SLUG_RE.test(agentId)) return null;
+  if (projectSlot !== "dm" && !SLUG_RE.test(projectSlot)) return null;
+
+  return {
+    owner,
+    agentId,
+    projectId: projectSlot === "dm" ? null : projectSlot
+  };
 }

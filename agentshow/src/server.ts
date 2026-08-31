@@ -4,16 +4,25 @@ import { routeAgentRequest } from "agents";
 import type { ModelMessage } from "ai";
 import { verifyAccess } from "./access";
 import { handleApi } from "./api";
-import { parseAgentKey } from "./agent-key";
+import { type AgentKey, parseAgentKey, scoped } from "./agent-key";
+import { checkAgentRoute } from "./agent-route";
 import { projectTools } from "./agent-tools";
-import { deliverMention } from "./mention";
+import { deliverMention, depthInText, depthLine } from "./mention";
 
 export { AgentIdentityDO } from "./agent-identity";
 export { ProjectDO } from "./project";
 export { WorkspaceDO } from "./workspace";
 
-/** DO storage 里存提及深度的键，加前缀避免跟 Agent 基类的键相撞。 */
-const MENTION_DEPTH_KEY = "agentshow:mentionDepth";
+/** 这一轮所处的提及深度，从它自己的消息里读。编解码在 mention.ts。 */
+function depthOf(messages: ModelMessage[]): number {
+  const last = [...messages].reverse().find((m) => m.role === "user");
+  if (!last) return 0;
+  const text =
+    typeof last.content === "string"
+      ? last.content
+      : last.content.map((p) => (p.type === "text" ? p.text : "")).join("");
+  return depthInText(text);
+}
 
 /**
  * 这条 session 的标题，只在第一轮定一次。
@@ -47,17 +56,22 @@ export class AgentDO extends Think<Env> {
   }
 
   /**
-   * 这个 DO 实例代表一条 session，实例名是 `${agentId}:${projectId}`。
+   * 这个 DO 实例代表一条 session，实例名是 `${owner}~${agentId}:${projectId}`。
    * DM 的 project 位是保留字 dm。
+   *
+   * 解析不出来就抛。能走到这里说明 checkAgentRoute 已经放行过一次，
+   * 此时形状不对是程序错误 —— 兜个默认值只会让越权变成静默的。
    */
-  get key() {
-    return parseAgentKey(this.name);
+  get key(): AgentKey {
+    const parsed = parseAgentKey(this.name);
+    if (!parsed) throw new Error(`AgentDO 实例名不合法：${this.name}`);
+    return parsed;
   }
 
   #identity() {
-    const { agentId } = this.key;
+    const { owner, agentId } = this.key;
     return this.env.AgentIdentityDO.get(
-      this.env.AgentIdentityDO.idFromName(agentId)
+      this.env.AgentIdentityDO.idFromName(scoped(owner, agentId))
     );
   }
 
@@ -98,10 +112,9 @@ export class AgentDO extends Think<Env> {
     path: string;
     message: string;
     depth: number;
-  }): Promise<void> {
-    // 存下深度，供这一轮里它自己再 @ 别人时递增。
-    await this.ctx.storage.put(MENTION_DEPTH_KEY, p.depth);
-
+    /** 每条提及自己带的 id，用来做重投幂等。 */
+    mentionId: string;
+  }): Promise<boolean> {
     // 被 @ 唤醒的 session 在这里定标题。不定的话，标题会从下面那段
     // 拼给模型的提示里截出来，会话列表上就是一行截断的机器话。
     if (!(await this.ctx.storage.get<string>(SESSION_TITLE_KEY))) {
@@ -112,32 +125,24 @@ export class AgentDO extends Think<Env> {
       `${p.fromName} 在文件 ${p.path} 上 @ 了你：`,
       p.message,
       "",
-      `先用 readProjectFile 读 ${p.path}，再决定怎么回应。`
+      `先用 readProjectFile 读 ${p.path}，再决定怎么回应。`,
+      depthLine(p.depth)
     ].join("\n");
 
-    await this.submitMessages(
+    const result = await this.submitMessages(
       [{ id: crypto.randomUUID(), role: "user", parts: [{ type: "text", text }] }],
       {
-        // 同一个人在同一个文件上说同一句话，重投不该变成两轮。
-        // 用 id 不用名字：名字会改，改名不该让同一条提及重新投一遍。
-        idempotencyKey: `mention:${p.fromId}:${p.path}:${p.message}`,
+        // 幂等键用每次提及动作自己的 id，不用消息内容拼。
+        // 用内容拼的话，同一个人一小时后在同一文件上说同样的话（合理的催办）
+        // 会命中旧键：目标不会新起一轮，而调用方以为投递成功。
+        idempotencyKey: p.mentionId,
         metadata: { source: "mention", from: p.fromId, depth: p.depth }
       }
     );
-  }
 
-  /** 当前轮次所处的提及深度。人类发起的轮次是 0。 */
-  async currentMentionDepth(): Promise<number> {
-    return (await this.ctx.storage.get<number>(MENTION_DEPTH_KEY)) ?? 0;
-  }
-
-  /**
-   * 轮次结束就把深度清掉。
-   * 不清的话，人类的下一轮会读到上一条提及链留下的陈旧深度，
-   * 于是一条正常的人类请求会被当成第 3 跳而拒绝再提及。
-   */
-  async onChatResponse(): Promise<void> {
-    await this.ctx.storage.delete(MENTION_DEPTH_KEY);
+    // accepted 为 false 说明这是同一条提及的重投，目标没有新一轮。
+    // 把它交回给调用方 —— 丢掉它就会记出一条「A 提及了 B」而 B 从没醒过。
+    return result.accepted;
   }
 
   /**
@@ -150,21 +155,31 @@ export class AgentDO extends Think<Env> {
    * DM 没有 project，就只有私有盘，没有公共区工具。
    */
   async beforeTurn(ctx: TurnContext): Promise<TurnConfig | void> {
-    const { agentId, projectId } = this.key;
+    const { owner, agentId, projectId } = this.key;
     if (!projectId) return;
 
     const project = this.env.ProjectDO.get(
-      this.env.ProjectDO.idFromName(projectId)
+      this.env.ProjectDO.idFromName(scoped(owner, projectId))
     );
+
+    // 这一轮所处的提及深度，从这一轮自己的消息里读。
+    const depth = depthOf(ctx.messages);
 
     // 让这条 session 出现在 project 的会话列表里。没有这一步，
     // 中栏永远是空的 —— 消息住在这个 DO 里，project 手里只有索引。
-    let title = await this.ctx.storage.get<string>(SESSION_TITLE_KEY);
-    if (!title) {
-      title = firstUserText(ctx.messages);
-      if (title) await this.ctx.storage.put(SESSION_TITLE_KEY, title);
+    //
+    // best-effort：它只影响中栏列表的新鲜度。让它抛出去的话，
+    // ProjectDO 抖一下就会把整轮推理拦在开始之前。
+    try {
+      let title = await this.ctx.storage.get<string>(SESSION_TITLE_KEY);
+      if (!title) {
+        title = firstUserText(ctx.messages);
+        if (title) await this.ctx.storage.put(SESSION_TITLE_KEY, title);
+      }
+      await project.upsertSession({ agentId, title: title || undefined });
+    } catch (e) {
+      console.error("upsertSession 失败，不阻断这一轮：", e);
     }
-    await project.upsertSession({ agentId, title: title || undefined });
 
     return {
       tools: projectTools({
@@ -172,13 +187,14 @@ export class AgentDO extends Think<Env> {
         authorId: agentId,
         mention: async (input) =>
           deliverMention(this.env, {
+            owner,
             projectId,
             fromId: agentId,
             toAgentName: input.toAgentName,
             path: input.path,
             message: input.message,
-            // 当前深度 + 1 —— 我被 @ 到第 n 跳，我再 @ 别人就是第 n+1 跳。
-            depth: (await this.currentMentionDepth()) + 1
+            // 我被 @ 到第 n 跳，我再 @ 别人就是第 n+1 跳。
+            depth: depth + 1
           })
       })
     };
@@ -198,6 +214,12 @@ export default {
     // email 是验过的身份，作为参数传下去 —— 下游不再重新解析请求头。
     const apiResponse = await handleApi(request, env, access.email);
     if (apiResponse) return apiResponse;
+
+    // agent 端点的归属闸。Access 只回答「这个人能不能进站」，
+    // 进来之后实例名是客户端给的 —— 不查这一下，任意登录者就能连到
+    // 别人的 session 上，并拿到那个 project 的读写工具。
+    const route = checkAgentRoute(new URL(request.url), access.email);
+    if (route.kind === "deny") return route.response;
 
     const agentResponse = await routeAgentRequest(request, env);
     if (agentResponse) return agentResponse;
