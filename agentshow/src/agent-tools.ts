@@ -13,7 +13,8 @@ import type { ProjectDO } from "./project";
 export const PROJECT_TOOL_NAMES = [
   "listProjectFiles",
   "readProjectFile",
-  "writeProjectFile"
+  "writeProjectFile",
+  "commentOnProjectFile"
 ] as const;
 
 export function projectTools(
@@ -59,6 +60,32 @@ export function projectTools(
           .describe("你读到这个文件时的版本号；新文件传 0")
       }),
       execute: async (input) => project.writeFile({ ...input, authorId })
+    }),
+
+    // 评论是复审 agent 的产出，也是人类看到的东西。
+    // 这段说明在逼它给具体的 —— 一句「建议优化一下」不如没有，
+    // 它既不能让人判断，也不能让另一个 agent 据此行动。
+    commentOnProjectFile: tool({
+      description:
+        "在 project 公共区的某个文件上留一条评论。评论挂在文件上，" +
+        "所有能看到这个文件的人和 agent 都会看到。\n" +
+        "写具体的：指出是哪一处、会导致什么后果、建议怎么改。" +
+        "不要写「建议优化一下」「整体不错」这类没有信息量的话 —— " +
+        "看的人无法据此判断，别的 agent 也无法据此行动。\n" +
+        "定位到具体位置时用 anchor 标出来，例如「第 42 行」；" +
+        "针对整体的评价可以不填。",
+      inputSchema: z.object({
+        path: z.string().describe("要评论的文件路径"),
+        text: z.string().describe("评论正文，要具体"),
+        anchor: z
+          .string()
+          .optional()
+          .describe("可选，定位到文件的哪一处，例如「第 42 行」")
+      }),
+      execute: async (input) => {
+        project.addComment({ ...input, authorId });
+        return { ok: true };
+      }
     })
   };
 }

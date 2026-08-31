@@ -21,6 +21,21 @@ CREATE INDEX IF NOT EXISTS members_by_name ON members (name);
 -- 只存指针不存内容。消息住在 AgentDO 里，project 手里只有索引 ——
 -- 没有它，「这个项目现在什么状态」就得挨个 agent 问。
 -- 一个 (agent, project) 只有一条 session，所以 agent_id 就是主键。
+-- 讨论挂在文件路径上，不挂在对话上。
+-- file_version 记下这条评论针对的是哪一版 —— 文件改过之后，
+-- 界面要能区分「针对当前版本」和「老版本的遗留」。
+-- 文件还不存在时记 0：可以先对一个还没建的文件提要求。
+CREATE TABLE IF NOT EXISTS comments (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  path         TEXT NOT NULL,
+  author_id    TEXT NOT NULL,
+  text         TEXT NOT NULL,
+  anchor       TEXT,
+  file_version INTEGER NOT NULL,
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS comments_by_path ON comments (path, id);
+
 CREATE TABLE IF NOT EXISTS session_index (
   agent_id   TEXT PRIMARY KEY,
   title      TEXT NOT NULL DEFAULT '',
@@ -36,6 +51,17 @@ export type Member = {
   memberId: string;
   kind: MemberKind;
   name: string;
+};
+
+export type FileComment = {
+  id: number;
+  path: string;
+  authorId: string;
+  text: string;
+  anchor: string | null;
+  /** 这条评论针对的是文件哪一版。文件还不存在时为 0。 */
+  fileVersion: number;
+  createdAt: number;
 };
 
 export type SessionStatus = "in_progress" | "done";

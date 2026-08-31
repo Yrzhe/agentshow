@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   SCHEMA,
+  type FileComment,
   type FileRow,
   type FileSummary,
   type Member,
@@ -82,6 +83,71 @@ export class ProjectDO extends DurableObject<Env> {
     );
 
     return { ok: true, version: next };
+  }
+
+  // ── 讨论线程 ──────────────────────────────────────────────────────────
+
+  /**
+   * 评论挂在路径上。fileVersion 取写入时文件的当前版本 ——
+   * 文件不存在时是 0，可以先对一个还没建的文件提要求。
+   */
+  addComment(c: {
+    path: string;
+    authorId: string;
+    text: string;
+    anchor?: string;
+  }): void {
+    const file = this.readFile(c.path);
+    this.ctx.storage.sql.exec(
+      `INSERT INTO comments (path, author_id, text, anchor, file_version, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      c.path,
+      c.authorId,
+      c.text,
+      c.anchor ?? null,
+      file?.version ?? 0,
+      Date.now()
+    );
+  }
+
+  listComments(path: string): FileComment[] {
+    return this.ctx.storage.sql
+      .exec<{
+        id: number;
+        path: string;
+        author_id: string;
+        text: string;
+        anchor: string | null;
+        file_version: number;
+        created_at: number;
+      }>(
+        `SELECT id, path, author_id, text, anchor, file_version, created_at
+         FROM comments WHERE path = ? ORDER BY id ASC`,
+        path
+      )
+      .toArray()
+      .map((r) => ({
+        id: r.id,
+        path: r.path,
+        authorId: r.author_id,
+        text: r.text,
+        anchor: r.anchor,
+        fileVersion: r.file_version,
+        createdAt: r.created_at
+      }));
+  }
+
+  /**
+   * Files 列表每一行都要显示评论数，所以一次查完，
+   * 而不是让前端对每个文件各查一次。没有评论的文件不出现在结果里。
+   */
+  commentCounts(): Record<string, number> {
+    const rows = this.ctx.storage.sql
+      .exec<{ path: string; n: number }>(
+        "SELECT path, COUNT(*) AS n FROM comments GROUP BY path"
+      )
+      .toArray();
+    return Object.fromEntries(rows.map((r) => [r.path, r.n]));
   }
 
   // ── 成员 ──────────────────────────────────────────────────────────────

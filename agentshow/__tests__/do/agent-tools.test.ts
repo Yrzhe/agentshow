@@ -61,6 +61,29 @@ describe("project 工具接真 ProjectDO", () => {
     expect(list.find((f) => f.path === "notes.md")?.ownerId).toBe("sable");
   });
 
+  it("commentOnProjectFile 把评论挂到文件上", async () => {
+    const t = toolsFor("verdigris");
+    await run(t.commentOnProjectFile, {
+      path: "spec.md",
+      text: "第 42 行的空数组会让表头塌掉",
+      anchor: "第 42 行"
+    });
+
+    const stub = env.ProjectDO.get(env.ProjectDO.idFromName("p-tools"));
+    const cs = await stub.listComments("spec.md");
+    expect(cs.at(-1)?.text).toContain("空数组");
+    expect(cs.at(-1)?.anchor).toBe("第 42 行");
+    expect(cs.at(-1)?.authorId).toBe("verdigris");
+  });
+
+  it("评论工具的说明在逼模型给具体的，不给套话", () => {
+    const t = toolsFor("verdigris");
+    const desc = (t.commentOnProjectFile as { description?: string }).description ?? "";
+    // 复审 agent 留一句「建议优化一下」的话，形态再对演示也白搭。
+    expect(desc).toMatch(/具体/);
+    expect(desc).toMatch(/建议优化一下|没有信息量/);
+  });
+
   it("writeProjectFile 的说明必须教会模型 stale 之后要重做", () => {
     const t = toolsFor("ferrule");
     const desc = (t.writeProjectFile as { description?: string }).description ?? "";
