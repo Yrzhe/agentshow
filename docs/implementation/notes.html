@@ -658,6 +658,33 @@ kind 时测分类、只有一个版本时测版本比较。
 
 ---
 
+## [2026-08-31T08:36:37.398Z] · design-decision · claude-code
+**dev 开着跑测试会静默丢掉全部 DO 测试**
+
+`vite dev` 开着的时候跑 `npx vitest run`，**workers 那个 project 会整个消失**，
+只剩 node 组：
+
+    Test Files  4 passed (4)      ← dev 开着
+    Tests      35 passed (35)
+
+    Test Files  13 passed (13)    ← dev 关掉后同一条命令
+    Tests     101 passed (101)
+
+两者都**退出码 0**，都打印一行绿色的汇总。没有警告，没有 skip 标记 ——
+消失的 9 个文件 66 条测试不会在输出里留下任何痕迹。
+
+原因（推测，未深挖）：`@cloudflare/vitest-pool-workers` 和 `vite dev` 都要起
+workerd，`vite dev` 占着的时候后者起不来。
+
+**为什么值得记**：这条命令是每个 Task 的提交门禁。在开着 dev 调界面的时候
+顺手跑一遍测试是最自然的动作，而那一遍恰好把所有 Durable Object 测试
+静默跳过了 —— 于是「测试全绿」变成一句假话，而且是看起来完全正常的假话。
+
+**做法**：提交前那一次 `vitest run` 必须在 dev 关掉的情况下跑，并且**核对
+文件数**（当前应为 13），不要只看颜色。
+
+---
+
 </script>
 <script type="application/json" id="issues-data">
 {"projects": []}

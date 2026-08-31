@@ -59,8 +59,14 @@ export function SessionList({
               className="h-11 w-full shrink-0 flex items-center px-4.5 gap-2.25 border-b border-[#ECECEC] text-left hover:bg-[#F5F5F5]"
             >
               <Avatar member={who} id={s.agentId} size={20} />
-              <span className="grow min-w-0 truncate font-medium text-[#121313] text-xs/4">
-                {s.title || `与 ${who?.name ?? s.agentId} 的对话`}
+              {/* 名字必须出现在文字里。标题是自动生成的，两个 agent 被同一件事
+                  叫醒时会一字不差地重名 —— 那时只剩一枚 20px 的徽记区分它们，
+                  而这一列存在的意义就是让人挑一个 agent 点进去。 */}
+              <span className="shrink-0 font-medium text-[#121313] text-xs/4">
+                {who?.name ?? s.agentId}
+              </span>
+              <span className="grow min-w-0 truncate text-[#777777] text-xs/4">
+                {s.title}
               </span>
               <span
                 className={`w-13 shrink-0 text-right text-[10px]/3 ${
