@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **`scripts/seed.ts`** —— 建 project 和三个 agent（写实现、复审、管文案），
+  各自带身份卡和身份文档。幂等。线上灌数据要带登录后的 `CF_Authorization`
+  cookie：Access 的 service token 没有 email，而鉴权明确拒绝不带 email 的 token。
 - **文件详情** —— 内容带行号、归属、版本，以及挂在这个文件上的讨论。
   评论标出针对的是哪一版：文件改过之后，看的人要能分清这是针对当前
   这一版，还是老版本的遗留。

@@ -542,3 +542,62 @@ workerd，`vite dev` 占着的时候后者起不来。
 文件数**（当前应为 13），不要只看颜色。
 
 ---
+
+## [2026-08-31T08:45:40.238Z] · deviation · claude-code
+**seed 加第三个 agent —— 计划的冲突步骤自相矛盾**
+
+计划 Task 10 Step 3 写的是「让两个 agent 同时改同一文件」，但 Step 1 只 seed 两个 agent：
+一个写实现，一个复审，而复审那个的人设第一条就是「从不改别人的文件」。
+**按计划 seed 出来的团队里只有一个写手，这一步无法执行。**
+
+加了第三个 agent（Sable，管文案）。选它的理由不是凑数，是撞车要有真实动机：
+Ferrule 管结构、Sable 管文案，而定价组件里这两样住在同一个文件里。
+两个人为了各自正当的理由去改同一个文件 —— 这才是乐观并发要解决的那种冲突。
+如果靠人为编排（比如让复审 agent 破例改一次代码），演示时一看就是摆拍的，
+而且要求模型违背自己的身份文档，多半会被它拒绝。
+
+**实测结果**（本地 dev，Workers AI，两条 @提及并发投出）：
+
+    rejected   sable    v1→v2
+    updated    ferrule  v2
+    updated    sable    v3      ← 重做
+
+判据不是「有没有重试」，是**先写的那个人的改动有没有在 v3 里活下来**。
+查过 v3 内容：Ferrule 加的 `aria-pressed` / `aria-label` / `role=` 全在，
+同时 Sable 的中文文案（个人版 / 团队版 / 企业版、月付 / 年付）也在。
+它是在新结构上重做，不是拿旧快照覆盖。
+
+Sable 自己的推理（原文）：
+「The previous write failed due to stale. The current version is 2, and someone
+(probably Ferrule) added role and aria-pressed to the billing cycle toggle.
+I shouldn't overwrite that structural change; I should just apply my copy edits
+on top of the current version.」
+
+这是整个计划里风险最高的一条假设，现在有了第二次独立验证
+（第一次是 Task 2 之后用注入版本的方式验的，那次是构造的；这次是真并发）。
+
+---
+
+## [2026-08-31T08:46:36.313Z] · open-question · claude-code
+**DO 命名空间是全局的 —— 多人时会撞车**
+
+`ProjectDO` 按 `idFromName(projectId)` 寻址，`AgentIdentityDO` 按 `idFromName(agentId)`。
+**这两个命名空间是全局的，不按人隔离。** 建 project `demo` 时踩到了：
+它带着 Task 3 那次冲突验证留下的 `pricing.md v3` —— 同一个 id 就是同一个实例。
+
+推论：如果两个人都登录（Access 放行 yrzhe.space / youware.com / arco.ai 三个域），
+各自建一个叫 `demo` 的 project，**他们会共用同一个 ProjectDO**，看到彼此的文件。
+agent 同理：两个人各建一个叫 `ferrule` 的 agent，会共用同一份 soul 和 memory。
+
+**今天不会真的漏。** 已验证：`/api/projects/:id` 先查这个 project 在不在调用者
+自己的工作台里，别人读不到（`__tests__/do/api.test.ts` 有测试，反事实验过）。
+而且界面上没有任何创建入口，只有 seed 脚本能建 —— 所以要撞上，得两个人各自
+拿着脚本、恰好用同一个 id。
+
+**这是 layer 3（多人）的问题，spec 已经把多人放在第三层。** 记在这里是因为
+它不会自己暴露：单人用永远正常，第二个人进来的那天才会安静地共享数据。
+
+修的话大致是给 DO 实例名加上所有者前缀（`${owner}/${projectId}`），
+连带 `agentKey` 和提及路由都要用带前缀的 id。不在 v1 范围内，没做。
+
+---
