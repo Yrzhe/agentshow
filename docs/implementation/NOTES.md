@@ -601,3 +601,37 @@ agent 同理：两个人各建一个叫 `ferrule` 的 agent，会共用同一份
 连带 `agentKey` 和提及路由都要用带前缀的 id。不在 v1 范围内，没做。
 
 ---
+
+## [2026-08-31T15:48:23.349Z] · design-decision · claude-code
+**DO 实例名的分隔符不能用斜杠 —— 单元测试照不到跨层契约**
+
+修 A-1 / A-2 时给 DO 实例名加所有者前缀，第一版分隔符用了 `/`：
+`${owner}/${agentId}:${projectId}`。
+
+**116 条测试全绿，tsc 零错，build 通过。** 然后浏览器里对话整个连不上。
+
+agents SDK 把实例名**原样拼进 URL 路径且不编码**，斜杠于是变成真正的路径
+分隔符。控制台里看得很清楚：
+
+    GET /agents/agent-d-o/dev@localhost/ferrule:fixcheck/get-messages → 403
+    WebSocket connection ... failed （连续 6 次）
+    PartySocket: room name "dev@localhost/ferrule:fixcheck" contains forward slash
+
+路由拿到的实例名只剩 `dev@localhost`，parseAgentKey 解析失败 → 403。
+SDK 自己都警告了，而我的测试全都在 `agentKey()` / `parseAgentKey()` 这一层
+自洽地往返，从来没经过 URL。
+
+换成 `~`（RFC 3986 的 unreserved，不会被编码，slug 里也不会出现）之后，
+控制台零 error 零 warning。
+
+**教训不是「要测真机」——是「跨层的契约，单元测试是照不到的」。**
+`agentKey` 的往返测试再多也证明不了「这个字符串能安全地当 URL 路径段」，
+因为那个约束根本不在这个模块里，它在 SDK 怎么拼 URL 里。同类的还有：
+能当文件名吗、能当 SQL 标识符吗、能进 HTTP header 吗、JSON 序列化后还相等吗。
+
+顺带一条：我最初是用 curl 手工试的，而我自己在命令里 `quote(safe='')`
+把整个名字编码了，于是看到的是 500 而不是 403 —— **测试用例本身引入的失真
+差点把我引向错误的结论**（以为是 DO 侧解码问题）。真正说清楚的是浏览器控制台，
+因为那是真实客户端自己拼的 URL。
+
+---

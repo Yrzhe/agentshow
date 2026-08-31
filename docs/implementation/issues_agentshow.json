@@ -2,25 +2,30 @@
   "project": "agentshow",
   "prefix": "A",
   "next_num": 33,
-  "updated": "2026-08-31T12:19:43Z",
+  "updated": "2026-08-31T15:47:30Z",
   "issues": [
     {
       "id": "A-1",
       "num": 1,
       "title": "agent 路由零授权：任意登录者可直连别人的 session 并驱动其 project",
       "severity": "P0",
-      "status": "open",
+      "status": "shipped",
       "owner": "",
       "batch": "",
       "evidence": "src/server.ts:188-203 调 routeAgentRequest 前只有站点级 verifyAccess；beforeTurn(src/server.ts:152-183) 直接从可控实例名拆出 agentId/projectId 注入工具。Lane A、Lane B 各自独立复现；Lane B 实测 GET /agents/agent-d-o/victim:secret-project/get-messages 返回 200。",
       "body": "handleApi 对 /agents/* 返回 null，随后 routeAgentRequest 不查 WorkspaceDO 归属、不查 ProjectDO 成员关系。DO 实例名由客户端提供（src/ui/Chat.tsx:31-32 公开了拼法），于是「实例名能被解析」被当成了授权事实。\n\n同一条通道既能读别人 session 历史，也能发消息驱动 victim agent 读写 victim project，写入的文件 owner 还是攻击者指定的 agentId。\n\n修的方向：给 routeAgentRequest 配 onBeforeRequest / onBeforeConnect，用已验证邮箱校验 agent 与 project 归属；DO 名要带 owner，不能继续拿裸 ${agentId}:${projectId} 当边界。",
       "created": "2026-08-31T11:45:59Z",
-      "updated": "2026-08-31T11:45:59Z",
+      "updated": "2026-08-31T15:47:29Z",
       "history": [
         {
           "ts": "2026-08-31T11:45:59Z",
           "author": "claude-code",
           "change": "created · open · P0"
+        },
+        {
+          "ts": "2026-08-31T15:47:29Z",
+          "author": "claude-code",
+          "change": "status: open → shipped — 已修并本地复验（测试 + 真机）。标 shipped 不标 fixed：验证是我自己做的，发现它的四个 reviewer 已 dismiss，还没有独立复审这批修复。"
         }
       ]
     },
@@ -29,18 +34,23 @@
       "num": 2,
       "title": "建同名 project / agent 即可读到别人的文件内容与身份文档",
       "severity": "P0",
-      "status": "open",
+      "status": "shipped",
       "owner": "",
       "batch": "",
       "evidence": "src/api.ts:209-225 先把裸 projectId 加进自己的 WorkspaceDO，再用全局 ProjectDO.idFromName(projectId) 把自己加成成员，于是 src/api.ts:232-235 的归属检查随后放行。我本人用两个不同邮箱写了复现测试，两条断言全过：B 读到 A 的 secret.md 内容 victim secret，以及 A 的 identityDoc victim private soul。",
       "body": "两步：\n1. B 先 GET /api/projects/<A的id> → 404，归属检查看起来有效\n2. B POST /api/projects 用同一个 projectId → 201\n3. B 再 GET 文件详情 → 200，拿到 A 的内容\n\nagent 同理：POST /api/agents 用同名 agentId 且不传 soul，会覆盖 profile、保留原 soul，然后 GET /api/agents/<id> 就能读到别人的身份文档。\n\n这条推翻了 NOTES 里那条 open-question 的判断（我当时写的是「今天不会真的漏」）——归属检查本身可被污染，不是只有「两人恰好用同一 id」才撞车。\n\n修的方向同 A-1：ProjectDO / AgentIdentityDO 实例名带 owner 前缀，DO 内存不可变 owner 并在 RPC 层校验调用者。",
       "created": "2026-08-31T11:46:32Z",
-      "updated": "2026-08-31T11:46:32Z",
+      "updated": "2026-08-31T15:47:29Z",
       "history": [
         {
           "ts": "2026-08-31T11:46:32Z",
           "author": "claude-code",
           "change": "created · open · P0"
+        },
+        {
+          "ts": "2026-08-31T15:47:29Z",
+          "author": "claude-code",
+          "change": "status: open → shipped — 已修并本地复验（测试 + 真机）。标 shipped 不标 fixed：验证是我自己做的，发现它的四个 reviewer 已 dismiss，还没有独立复审这批修复。"
         }
       ]
     },
@@ -49,18 +59,23 @@
       "num": 3,
       "title": "提及深度存在 session 级单值键，并发提及会互相覆盖并绕过 3 跳上限",
       "severity": "P0",
-      "status": "open",
+      "status": "shipped",
       "owner": "",
       "batch": "",
       "evidence": "src/server.ts:103 put / :131 get / :140 delete 共用一个 MENTION_DEPTH_KEY；metadata 里写了 depth 但 grep 全仓无读取方。我写了复现测试，两条断言全过：第二条提及把深度从 1 覆盖成 3；一轮 onChatResponse 之后排队中的真 depth=3 读到 0。",
       "body": "spec（docs/architecture/agentshow-design.md 第 6 节）把环的防护列为「必须有的」，理由是 A @ B、B @ A 会一直烧钱。当前实现在两条提及排队到同一目标时双向失效：既会误拦合法的第 2 跳，也会放行本该拦住的第 4 跳。\n\nLane A 和 Lane D 独立报了同一条。\n\n修的方向：depth 绑到 submission/turn，不要放 AgentDO 全局键。",
       "created": "2026-08-31T11:46:32Z",
-      "updated": "2026-08-31T11:46:32Z",
+      "updated": "2026-08-31T15:47:29Z",
       "history": [
         {
           "ts": "2026-08-31T11:46:32Z",
           "author": "claude-code",
           "change": "created · open · P0"
+        },
+        {
+          "ts": "2026-08-31T15:47:29Z",
+          "author": "claude-code",
+          "change": "status: open → shipped — 已修并本地复验（测试 + 真机）。标 shipped 不标 fixed：验证是我自己做的，发现它的四个 reviewer 已 dismiss，还没有独立复审这批修复。"
         }
       ]
     },
@@ -69,18 +84,23 @@
       "num": 4,
       "title": "幂等键用消息内容拼成，合理的重复提及被静默吞掉但活动流仍记成功",
       "severity": "P1",
-      "status": "open",
+      "status": "shipped",
       "owner": "",
       "batch": "",
       "evidence": "src/server.ts:118-125 键为 mention:fromId:path:message；notifyMention 返回 Promise<void>，丢弃了 SubmitMessagesResult.accepted（node_modules/@cloudflare/think/dist/index-B7zEkBBM.d.ts:704-706 确认该字段存在）。src/mention.ts:68-76 无条件 recordMention。Lane A 实测连发两次相同提及，listSubmissions() 只有 1 条。",
       "body": "同一个人一小时后在同一文件上说同样的话（合理的催办）会命中旧键，目标不会新起一轮，但界面新增一条「A 提及了 B」。这正是代码注释里自己警告过的失败模式：agent 说我 @ 了它，然后什么都没发生。\n\n另外 Lane A 指出字段未转义：path=a:b + message=c 与 path=a + message=b:c 会撞同一个键。\n\n修的方向：每次提及动作生成独立 mentionId，只用它做网络重试幂等；检查 accepted，只有真接受才记活动。",
       "created": "2026-08-31T11:47:29Z",
-      "updated": "2026-08-31T11:47:29Z",
+      "updated": "2026-08-31T15:47:30Z",
       "history": [
         {
           "ts": "2026-08-31T11:47:29Z",
           "author": "claude-code",
           "change": "created · open · P1"
+        },
+        {
+          "ts": "2026-08-31T15:47:30Z",
+          "author": "claude-code",
+          "change": "status: open → shipped — 随 P0 那批一起修掉（同一处代码）。同样待独立复审。"
         }
       ]
     },
@@ -229,18 +249,23 @@
       "num": 12,
       "title": "展示用的 session 索引写入是每轮推理的硬依赖，它失败整轮对话就不开始",
       "severity": "P2",
-      "status": "open",
+      "status": "shipped",
       "owner": "",
       "batch": "",
       "evidence": "src/server.ts:160-167 在 beforeTurn 里 await project.upsertSession，未捕获异常；该 RPC 的唯一作用是让中栏会话列表有条目和新鲜时间戳。",
       "body": "ProjectDO 短暂不可用时，一个只影响列表新鲜度的故障会升级成整轮模型调用不启动。每一轮都执行，已建好的 session 也躲不开。\n\n修的方向：改成 best-effort，失败记日志让推理继续。",
       "created": "2026-08-31T12:01:35Z",
-      "updated": "2026-08-31T12:01:35Z",
+      "updated": "2026-08-31T15:47:30Z",
       "history": [
         {
           "ts": "2026-08-31T12:01:35Z",
           "author": "claude-code",
           "change": "created · open · P2"
+        },
+        {
+          "ts": "2026-08-31T15:47:30Z",
+          "author": "claude-code",
+          "change": "status: open → shipped — 随 P0 那批一起修掉（同一处代码）。同样待独立复审。"
         }
       ]
     },
@@ -329,18 +354,23 @@
       "num": 17,
       "title": "任何一次轮询失败会把整个应用永久换成一行英文异常，成功的轮询救不回来",
       "severity": "P0",
-      "status": "open",
+      "status": "shipped",
       "owner": "",
       "batch": "",
       "evidence": "src/client.tsx 里 setError 只出现三次：34 行声明、42/49 行两个 catch —— 全文件没有一次 setError(null)；client.tsx:70 是 if (error) return <Center>{error}</Center>。Lane C 实测注入一次 500 后等 14 秒 3 次成功轮询不恢复；注入 TypeError 同样不恢复。",
       "body": "client.tsx:64-68 每 4 秒掷一次骰子。演示时 agent 正在推理、DO 冷启、Wi-Fi 抖一下，任何一次命中，左中右三栏全没了，变成一行 12px 灰字：Error: /api/projects/pricing → 500。只有手动刷新能出来，而刷新又会丢掉当前位置（见 A-27）。\n\nString(e) 把 Error: 前缀、内部路由和 HTTP 状态码一起端给了用户。\n\n修的方向：轮询失败不该有资格接管整个应用。首次 /api/me 失败才算致命；轮询失败只在角落挂一条中文提示，reload 成功时 setError(null)。",
       "created": "2026-08-31T12:17:36Z",
-      "updated": "2026-08-31T12:17:36Z",
+      "updated": "2026-08-31T15:47:30Z",
       "history": [
         {
           "ts": "2026-08-31T12:17:36Z",
           "author": "claude-code",
           "change": "created · open · P0"
+        },
+        {
+          "ts": "2026-08-31T15:47:30Z",
+          "author": "claude-code",
+          "change": "status: open → shipped — 已修并本地复验（测试 + 真机）。标 shipped 不标 fixed：验证是我自己做的，发现它的四个 reviewer 已 dismiss，还没有独立复审这批修复。"
         }
       ]
     },
@@ -349,18 +379,23 @@
       "num": 18,
       "title": "切 project 时在途的旧响应会把上个项目画上来，用户的评论会落进错的 project",
       "severity": "P1",
-      "status": "open",
+      "status": "shipped",
       "owner": "",
       "batch": "",
       "evidence": "src/client.tsx:45-50 的 reload 里 .then(setProject) 没有任何「这个响应还属不属于当前 projectId」的校验；src/ui/FileDetail.tsx:267-268 的评论 POST 用的是 project.projectId，即那份数据自带的 id。Lane C 实测把 pricing 响应延迟 5 秒后点 sea-saas，21.23 秒时迟到响应落地，中栏标题变回「定价页改版」，持续 3 秒。",
       "body": "这 3 秒里左栏高亮 SEA SaaS、中栏标题写定价页改版，界面自相矛盾。而且文件列表是旧 project 的，用户点进去留的评论会 POST 到旧 project —— 他以为自己在 B 项目里说话，字落进了 A 项目。\n\n修的方向：reload 里带上发起时的 projectId，.then 里比一次再 setProject；或给 fetch 挂 AbortController。",
       "created": "2026-08-31T12:17:36Z",
-      "updated": "2026-08-31T12:17:36Z",
+      "updated": "2026-08-31T15:47:30Z",
       "history": [
         {
           "ts": "2026-08-31T12:17:36Z",
           "author": "claude-code",
           "change": "created · open · P1"
+        },
+        {
+          "ts": "2026-08-31T15:47:30Z",
+          "author": "claude-code",
+          "change": "status: open → shipped — 随 P0 那批一起修掉（同一处代码）。同样待独立复审。"
         }
       ]
     },
