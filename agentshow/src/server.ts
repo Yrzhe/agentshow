@@ -2,12 +2,14 @@ import { Think } from "@cloudflare/think";
 import type { Session, TurnConfig, TurnContext } from "@cloudflare/think";
 import { routeAgentRequest } from "agents";
 import { verifyAccess } from "./access";
+import { handleApi } from "./api";
 import { parseAgentKey } from "./agent-key";
 import { projectTools } from "./agent-tools";
 import { deliverMention } from "./mention";
 
 export { AgentIdentityDO } from "./agent-identity";
 export { ProjectDO } from "./project";
+export { WorkspaceDO } from "./workspace";
 
 /** DO storage 里存提及深度的键，加前缀避免跟 Agent 基类的键相撞。 */
 const MENTION_DEPTH_KEY = "agentshow:mentionDepth";
@@ -152,7 +154,10 @@ export default {
     });
     if (!access.ok) return access.response;
 
-    // access.email 是已验证的人类身份，Task 4 接 members 表时从这里取。
+    // 界面的读写走这里，agent 的流式推理走 routeAgentRequest。
+    // email 是验过的身份，作为参数传下去 —— 下游不再重新解析请求头。
+    const apiResponse = await handleApi(request, env, access.email);
+    if (apiResponse) return apiResponse;
 
     const agentResponse = await routeAgentRequest(request, env);
     if (agentResponse) return agentResponse;

@@ -260,7 +260,13 @@ export class ProjectDO extends DurableObject<Env> {
 
   // ── 成员 ──────────────────────────────────────────────────────────────
 
-  addMember(m: Member): void {
+  /**
+   * `by` 是把人拉进来的那个成员。给了就记一条 `joined` 活动。
+   *
+   * 可选是因为第一个人类成员是建 project 时自己进来的 —— 那一刻没有「谁拉的」，
+   * 硬记一条「yrzhe 把 yrzhe 加进了这个项目」是噪音。
+   */
+  addMember(m: Member, by?: string): void {
     this.ctx.storage.sql.exec(
       `INSERT INTO members (member_id, kind, name, joined_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(member_id) DO UPDATE SET kind = excluded.kind, name = excluded.name`,
@@ -269,6 +275,16 @@ export class ProjectDO extends DurableObject<Env> {
       m.name,
       Date.now()
     );
+
+    if (by) {
+      this.#record({
+        actorId: by,
+        verb: "joined",
+        targetType: "member",
+        targetId: m.memberId,
+        detail: m.name
+      });
+    }
   }
 
   listMembers(): Member[] {

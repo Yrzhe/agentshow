@@ -29,13 +29,16 @@
       { "class_name": "AgentDO", "name": "AgentDO" },
       // 每个 agent 一个，装跨 project 共享的身份与记忆。
       { "class_name": "AgentIdentityDO", "name": "AgentIdentityDO" },
-      { "class_name": "ProjectDO", "name": "ProjectDO" }
+      { "class_name": "ProjectDO", "name": "ProjectDO" },
+      // 每个人一个，实例名是 Access 验过的邮箱：他有哪些 project、哪些 agent。
+      { "class_name": "WorkspaceDO", "name": "WorkspaceDO" }
     ]
   },
 
   // migration 只能追加。v1 已经部署过，改它会破坏线上已存在的实例。
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["AgentDO", "ProjectDO"] },
-    { "tag": "v2", "new_sqlite_classes": ["AgentIdentityDO"] }
+    { "tag": "v2", "new_sqlite_classes": ["AgentIdentityDO"] },
+    { "tag": "v3", "new_sqlite_classes": ["WorkspaceDO"] }
   ]
 }

@@ -22,6 +22,13 @@ export type AgentProfile = {
   tagline: string;
   description?: string;
   capabilities?: string[];
+  /**
+   * 静态资源路径，如 `/avatars/ferrule.png`。
+   *
+   * 头像跟着身份走而不是跟着 project —— 同一个 agent 在哪个 project 里
+   * 都该是同一张脸，否则活动流里认不出是谁。
+   */
+  avatar?: string;
 };
 
 /** 空的 soul 会让 agent 没有人格，所以给一个能用的兜底。 */
