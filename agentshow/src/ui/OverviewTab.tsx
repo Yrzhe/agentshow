@@ -13,12 +13,14 @@ export function OverviewTab({
   meId,
   now,
   onOpenFile,
+  onOpenMember,
   onSeeAll
 }: {
   project: ProjectView;
   meId?: string;
   now?: number;
   onOpenFile: (path: string) => void;
+  onOpenMember: (agentId: string) => void;
   onSeeAll: (tab: Tab) => void;
 }) {
   const t = now ?? Date.now();
@@ -32,7 +34,12 @@ export function OverviewTab({
         onAction={() => onSeeAll("成员")}
       />
       {project.members.map((m) => (
-        <MemberRow key={m.memberId} m={m} isMe={m.memberId === meId} />
+        <MemberRow
+          key={m.memberId}
+          m={m}
+          isMe={m.memberId === meId}
+          onOpen={onOpenMember}
+        />
       ))}
 
       <div className="mt-3.5" />

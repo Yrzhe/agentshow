@@ -6,10 +6,12 @@ import { MemberRow } from "./rows";
  */
 export function MembersTab({
   project,
-  meId
+  meId,
+  onOpenMember
 }: {
   project: ProjectView;
   meId?: string;
+  onOpenMember: (agentId: string) => void;
 }) {
   const agents = project.members.filter((m) => m.kind === "agent").length;
 
@@ -25,7 +27,12 @@ export function MembersTab({
       </div>
 
       {project.members.map((m) => (
-        <MemberRow key={m.memberId} m={m} isMe={m.memberId === meId} />
+        <MemberRow
+          key={m.memberId}
+          m={m}
+          isMe={m.memberId === meId}
+          onOpen={onOpenMember}
+        />
       ))}
     </div>
   );

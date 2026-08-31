@@ -73,7 +73,7 @@ describe("ProjectDO 活动流", () => {
 
   it("提及记 mentioned", async () => {
     await runInDurableObject(p(), async (o) => {
-      o.recordMention({ fromAgentId: "ferrule", toAgentId: "verdigris", path: "a.md" });
+      o.recordMention({ fromId: "ferrule", toAgentId: "verdigris", path: "a.md" });
       const top = o.listActivity(1)[0];
       expect(top.verb).toBe("mentioned");
       expect(top.actorId).toBe("ferrule");

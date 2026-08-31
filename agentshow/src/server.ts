@@ -92,7 +92,9 @@ export class AgentDO extends Think<Env> {
    * 产生两条消息。目标 agent 不需要在线，DO 睡着也不丢。
    */
   async notifyMention(p: {
-    fromAgentId: string;
+    fromId: string;
+    /** 显示名。通知里出现 id 的话，被叫醒的 agent 不知道是谁在叫它。 */
+    fromName: string;
     path: string;
     message: string;
     depth: number;
@@ -107,7 +109,7 @@ export class AgentDO extends Think<Env> {
     }
 
     const text = [
-      `${p.fromAgentId} 在文件 ${p.path} 上 @ 了你：`,
+      `${p.fromName} 在文件 ${p.path} 上 @ 了你：`,
       p.message,
       "",
       `先用 readProjectFile 读 ${p.path}，再决定怎么回应。`
@@ -117,8 +119,9 @@ export class AgentDO extends Think<Env> {
       [{ id: crypto.randomUUID(), role: "user", parts: [{ type: "text", text }] }],
       {
         // 同一个人在同一个文件上说同一句话，重投不该变成两轮。
-        idempotencyKey: `mention:${p.fromAgentId}:${p.path}:${p.message}`,
-        metadata: { source: "mention", from: p.fromAgentId, depth: p.depth }
+        // 用 id 不用名字：名字会改，改名不该让同一条提及重新投一遍。
+        idempotencyKey: `mention:${p.fromId}:${p.path}:${p.message}`,
+        metadata: { source: "mention", from: p.fromId, depth: p.depth }
       }
     );
   }
@@ -170,7 +173,7 @@ export class AgentDO extends Think<Env> {
         mention: async (input) =>
           deliverMention(this.env, {
             projectId,
-            fromAgentId: agentId,
+            fromId: agentId,
             toAgentName: input.toAgentName,
             path: input.path,
             message: input.message,

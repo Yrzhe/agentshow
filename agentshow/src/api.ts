@@ -1,7 +1,16 @@
 import { z } from "zod";
 import type { AgentProfile } from "./agent-identity";
-import type { FileView, MeView, MemberView, ProjectView } from "./api-types";
+import type {
+  AgentCardView,
+  FileDetailView,
+  FileView,
+  MeView,
+  MemberView,
+  ProjectView
+} from "./api-types";
+import { deliverMention } from "./mention";
 import type { Member } from "./project-schema";
+import type { WorkspaceDO } from "./workspace";
 
 /**
  * 浏览器读写用的 HTTP 面。
@@ -29,11 +38,25 @@ const CreateAgent = z.object({
   agentId: SLUG,
   name: z.string().min(1).max(40),
   tagline: z.string().max(80).default(""),
+  description: z.string().max(600).optional(),
+  capabilities: z.array(z.string().max(40)).max(8).optional(),
   avatar: z.string().max(200).optional(),
   soul: z.string().max(8000).optional()
 });
 
 const AddMember = z.object({ agentId: SLUG });
+
+const AddComment = z.object({
+  path: z.string().min(1).max(400),
+  text: z.string().min(1).max(4000),
+  anchor: z.string().max(80).optional()
+});
+
+const SendMention = z.object({
+  toAgentName: z.string().min(1).max(40),
+  path: z.string().min(1).max(400),
+  message: z.string().min(1).max(4000)
+});
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -164,16 +187,21 @@ export async function handleApi(
   if (method === "POST" && parts[0] === "agents" && parts.length === 1) {
     const parsed = CreateAgent.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return json({ error: parsed.error.issues }, 400);
-    const { agentId, name, tagline, avatar, soul } = parsed.data;
+    const { agentId, soul, ...profile } = parsed.data;
 
     const identity = env.AgentIdentityDO.get(
       env.AgentIdentityDO.idFromName(agentId)
     );
-    await identity.setProfile({ name, tagline, avatar });
+    await identity.setProfile(profile);
     if (soul) await identity.setIdentityDoc(soul);
     await workspace.addAgent(agentId);
 
-    return json(toAgentView(agentId, { name, tagline, avatar }), 201);
+    return json(toAgentView(agentId, profile), 201);
+  }
+
+  // GET /api/agents/:id —— 身份卡
+  if (method === "GET" && parts[0] === "agents" && parts.length === 2) {
+    return agentCard(env, workspace, parts[1]);
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -234,5 +262,101 @@ export async function handleApi(
     return json({ ok: true }, 201);
   }
 
+  const project = env.ProjectDO.get(env.ProjectDO.idFromName(projectId));
+
+  // GET /api/projects/:id/file?path=… —— 文件详情
+  //
+  // 路径走查询参数不走 URL 段：文件路径里可以有斜杠，塞进路径段就得转义，
+  // 而转义一旦漏一层，读到的就是另一个文件。
+  if (method === "GET" && parts[2] === "file" && parts.length === 3) {
+    const path = url.searchParams.get("path");
+    if (!path) return json({ error: "missing path" }, 400);
+
+    const [file, comments] = await Promise.all([
+      project.readFile(path),
+      project.listComments(path)
+    ]);
+    if (!file) return json({ error: "not found" }, 404);
+
+    // readFile 只给内容和版本，归属和时间在列表里。
+    const summary = (await project.listFiles()).find((f) => f.path === path);
+
+    const detail: FileDetailView = {
+      path,
+      content: file.content,
+      version: file.version,
+      ownerId: summary?.ownerId ?? "",
+      updatedAt: summary?.updatedAt ?? 0,
+      comments
+    };
+    return json(detail);
+  }
+
+  // POST /api/projects/:id/comments —— 人在文件上留一条评论
+  if (method === "POST" && parts[2] === "comments" && parts.length === 3) {
+    const parsed = AddComment.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) return json({ error: parsed.error.issues }, 400);
+
+    await project.addComment({ ...parsed.data, authorId: email });
+    return json({ ok: true }, 201);
+  }
+
+  // POST /api/projects/:id/mentions —— 人在文件上 @ 一个 agent 把活接过去
+  if (method === "POST" && parts[2] === "mentions" && parts.length === 3) {
+    const parsed = SendMention.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) return json({ error: parsed.error.issues }, 400);
+
+    const result = await deliverMention(env, {
+      projectId,
+      fromId: email,
+      // 人发起的是第 0 跳。链条从这里开始计数，被叫的 agent 再 @ 别人是第 1 跳。
+      depth: 0,
+      ...parsed.data
+    });
+    return json(result, result.ok ? 201 : 400);
+  }
+
   return json({ error: "not found" }, 404);
+}
+
+/**
+ * 身份卡。
+ *
+ * `projects` 要挨个 project 问一遍 —— 成员关系存在各个 ProjectDO 里，
+ * 没有反向索引。project 数量是个位数，为它建一张会漂的索引不划算。
+ */
+async function agentCard(
+  env: Env,
+  workspace: DurableObjectStub<WorkspaceDO>,
+  agentId: string
+): Promise<Response> {
+  const mine = await workspace.listAgents();
+  if (!mine.includes(agentId)) return json({ error: "not found" }, 404);
+
+  const identity = env.AgentIdentityDO.get(
+    env.AgentIdentityDO.idFromName(agentId)
+  );
+  const [profile, identityDoc, all] = await Promise.all([
+    identity.getProfile(),
+    identity.getIdentityDoc(),
+    workspace.listProjects()
+  ]);
+
+  const membership = await Promise.all(
+    all.map((p) =>
+      env.ProjectDO.get(env.ProjectDO.idFromName(p.projectId)).hasMember(agentId)
+    )
+  );
+
+  const card: AgentCardView = {
+    agentId,
+    name: profile.name || agentId,
+    tagline: profile.tagline || undefined,
+    description: profile.description,
+    capabilities: profile.capabilities,
+    avatar: profile.avatar,
+    identityDoc,
+    projects: all.filter((_, i) => membership[i])
+  };
+  return json(card);
 }

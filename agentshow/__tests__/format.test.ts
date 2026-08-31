@@ -5,6 +5,7 @@ import {
   collapseActivity,
   dayLabel,
   fileKind,
+  parseAnchor,
   relativeTime
 } from "../src/ui/format";
 
@@ -63,6 +64,26 @@ describe("fileKind", () => {
     expect(fileKind("定价文案.md")).toBe("doc");
     expect(fileKind("竞品定价对照.csv")).toBe("sheet");
     expect(fileKind("README")).toBe("other");
+  });
+});
+
+describe("parseAnchor", () => {
+  it("认得工具说明里给的那种写法", () => {
+    expect(parseAnchor("第 42 行")).toEqual({ from: 42, to: 42 });
+    expect(parseAnchor("第 9-26 行")).toEqual({ from: 9, to: 26 });
+    expect(parseAnchor("第 9–26 行")).toEqual({ from: 9, to: 26 });
+    expect(parseAnchor("42行")).toEqual({ from: 42, to: 42 });
+  });
+
+  // anchor 是自由文本，指不到行的说法同样有用 —— 只是不高亮。
+  it("指不到行的照样是合法 anchor，只是没有行号", () => {
+    expect(parseAnchor("整体")).toBeNull();
+    expect(parseAnchor("表头那一块")).toBeNull();
+    expect(parseAnchor(null)).toBeNull();
+  });
+
+  it("倒过来的范围当作认不出，不去猜用户的意思", () => {
+    expect(parseAnchor("第 26-9 行")).toBeNull();
   });
 });
 

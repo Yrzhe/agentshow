@@ -1,4 +1,9 @@
-import type { ActivityRow, MemberKind, SessionStatus } from "./project-schema";
+import type {
+  ActivityRow,
+  FileComment,
+  MemberKind,
+  SessionStatus
+} from "./project-schema";
 import type { ProjectRef } from "./workspace";
 
 /**
@@ -56,4 +61,32 @@ export type MeView = {
   agents: MemberView[];
 };
 
-export type { ActivityRow, ProjectRef };
+/** 文件详情：内容、归属、版本，和挂在它上面的讨论。 */
+export type FileDetailView = {
+  path: string;
+  content: string;
+  version: number;
+  ownerId: string;
+  updatedAt: number;
+  comments: FileComment[];
+};
+
+/**
+ * agent 的身份卡。
+ *
+ * `projects` 是「身份跨 project」这句话在界面上唯一的证据 —— 同一个 agent
+ * 出现在几个项目里，而它的人格和记忆只有一份。
+ */
+export type AgentCardView = {
+  agentId: string;
+  name: string;
+  tagline?: string;
+  description?: string;
+  capabilities?: string[];
+  avatar?: string;
+  /** 身份文档本身。这是「它是什么」最直接的回答。 */
+  identityDoc: string;
+  projects: ProjectRef[];
+};
+
+export type { ActivityRow, FileComment, ProjectRef };

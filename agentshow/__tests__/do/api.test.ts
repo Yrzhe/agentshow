@@ -2,7 +2,12 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { handleApi } from "../../src/api";
-import type { MeView, ProjectView } from "../../src/api-types";
+import type {
+  AgentCardView,
+  FileDetailView,
+  MeView,
+  ProjectView
+} from "../../src/api-types";
 
 /**
  * 界面用的 HTTP 面。email 是 verifyAccess 验过之后传进来的，
@@ -123,5 +128,100 @@ describe("handleApi", () => {
         comments: 1
       }
     ]);
+  });
+});
+
+describe("文件详情", () => {
+  it("内容、版本、归属和讨论一次给全", async () => {
+    const res = await get("/api/projects/pricing/file?path=pricing-table.tsx");
+    const d = (await res!.json()) as FileDetailView;
+
+    expect(d).toMatchObject({
+      path: "pricing-table.tsx",
+      content: "v1",
+      version: 1,
+      // 归属在 listFiles 里，内容在 readFile 里 —— 少并一处就是界面上一行空白。
+      ownerId: "ferrule"
+    });
+    expect(d.comments).toHaveLength(1);
+    expect(d.comments[0].text).toContain("第 42 行");
+  });
+
+  it("不存在的文件 404，不是一个内容为空的详情页", async () => {
+    const res = await get("/api/projects/pricing/file?path=nope.md");
+    expect(res?.status).toBe(404);
+  });
+
+  it("不给 path 是 400", async () => {
+    expect((await get("/api/projects/pricing/file"))?.status).toBe(400);
+  });
+
+  it("人留的评论作者是他自己，记进活动流", async () => {
+    const res = await post("/api/projects/pricing/comments", {
+      path: "pricing-table.tsx",
+      text: "这一版可以，先合了",
+      anchor: "整体"
+    });
+    expect(res?.status).toBe(201);
+
+    const p = (await (await get("/api/projects/pricing"))!.json()) as ProjectView;
+    expect(p.activity[0]).toMatchObject({
+      actorId: ME,
+      actorKind: "human",
+      verb: "commented"
+    });
+  });
+});
+
+describe("人发起的 @提及", () => {
+  // 人在文件上 @ 一个 agent 把活接过去，是这个产品的主要入口之一。
+  it("投递成功，活动流里主语是人", async () => {
+    const res = await post("/api/projects/pricing/mentions", {
+      toAgentName: "Ferrule",
+      path: "pricing-table.tsx",
+      message: "把第 42 行的空数组处理掉"
+    });
+    expect(res?.status).toBe(201);
+    expect(await res!.json()).toEqual({ ok: true, toAgentId: "ferrule" });
+
+    const p = (await (await get("/api/projects/pricing"))!.json()) as ProjectView;
+    expect(p.activity[0]).toMatchObject({
+      actorId: ME,
+      actorKind: "human",
+      verb: "mentioned",
+      detail: "ferrule"
+    });
+  });
+
+  it("@ 不存在的名字返回 400，不静默丢弃", async () => {
+    const res = await post("/api/projects/pricing/mentions", {
+      toAgentName: "根本没这个人",
+      path: "pricing-table.tsx",
+      message: "在吗"
+    });
+    expect(res?.status).toBe(400);
+    expect(await res!.json()).toEqual({ ok: false, reason: "unknown_agent" });
+  });
+});
+
+describe("身份卡", () => {
+  it("带身份文档，并且只列出它真的在的那些 project", async () => {
+    // 第二个 project，Ferrule 不在里面。没有它，「列出所在 project」
+    // 和「列出我的全部 project」两种实现给出的答案完全一样。
+    await post("/api/projects", { projectId: "sea-saas", name: "SEA SaaS 调研" });
+
+    const card = (await (await get("/api/agents/ferrule"))!.json()) as AgentCardView;
+
+    expect(card).toMatchObject({
+      agentId: "ferrule",
+      name: "Ferrule",
+      tagline: "写实现，产出交给别人复审",
+      identityDoc: "你只写实现。"
+    });
+    expect(card.projects.map((p) => p.projectId)).toEqual(["pricing"]);
+  });
+
+  it("查不到别人工作台里的 agent", async () => {
+    expect((await get("/api/agents/ferrule", OTHER))?.status).toBe(404);
   });
 });

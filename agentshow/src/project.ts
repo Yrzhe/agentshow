@@ -171,14 +171,10 @@ export class ProjectDO extends DurableObject<Env> {
       }));
   }
 
-  /** 提及的活动记录由 deliverMention 在投递成功后调用。 */
-  recordMention(m: {
-    fromAgentId: string;
-    toAgentId: string;
-    path: string;
-  }): void {
+  /** 提及的活动记录由 deliverMention 在投递成功后调用。发起方可以是人。 */
+  recordMention(m: { fromId: string; toAgentId: string; path: string }): void {
     this.#record({
-      actorId: m.fromAgentId,
+      actorId: m.fromId,
       verb: "mentioned",
       targetType: "file",
       targetId: m.path,
@@ -295,6 +291,28 @@ export class ProjectDO extends DurableObject<Env> {
       )
       .toArray()
       .map((r) => ({ memberId: r.member_id, kind: r.kind, name: r.name }));
+  }
+
+  hasMember(id: string): boolean {
+    return (
+      this.ctx.storage.sql
+        .exec<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM members WHERE member_id = ?",
+          id
+        )
+        .toArray()[0].n > 0
+    );
+  }
+
+  /**
+   * id → 显示名。@提及的通知里出现的必须是名字：被叫醒的 agent 只有
+   * 这一句话和那个文件，看到一个 id 它不知道是谁在叫它。
+   */
+  memberName(id: string): string | null {
+    const row = this.ctx.storage.sql
+      .exec<{ name: string }>("SELECT name FROM members WHERE member_id = ?", id)
+      .toArray()[0];
+    return row?.name ?? null;
   }
 
   /**

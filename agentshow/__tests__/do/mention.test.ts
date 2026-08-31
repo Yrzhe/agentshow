@@ -24,7 +24,7 @@ async function seedMembers() {
 
 const base = {
   projectId: PROJECT,
-  fromAgentId: "ferrule",
+  fromId: "ferrule",
   path: "spec.md",
   message: "帮我复审一下第 42 行",
   depth: 1

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { MeView, ProjectView } from "./api-types";
 import { Chat } from "./ui/Chat";
-import { ProjectPanel } from "./ui/ProjectPanel";
+import { type Detail, ProjectPanel } from "./ui/ProjectPanel";
 import { SessionList } from "./ui/SessionList";
 import { Sidebar } from "./ui/Sidebar";
 import "./styles.css";
@@ -28,6 +28,9 @@ function App() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [project, setProject] = useState<ProjectView | null>(null);
   const [open, setOpen] = useState<OpenSession | null>(null);
+  // 详情压在右栏的某个 tab 上。放在这里而不是 ProjectPanel 里面，
+  // 是因为左栏点一个 agent 也要能打开它的身份卡。
+  const [detail, setDetail] = useState<Detail>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,6 +52,7 @@ function App() {
   useEffect(() => {
     setProject(null);
     setOpen(null);
+    setDetail(null);
     reload();
   }, [reload]);
 
@@ -71,7 +75,12 @@ function App() {
 
   return (
     <div className="flex h-full bg-[#F5F5F5] text-xs/4 font-sans">
-      <Sidebar me={me} projectId={projectId} onPickProject={setProjectId} />
+      <Sidebar
+        me={me}
+        projectId={projectId}
+        onPickProject={setProjectId}
+        onOpenAgent={(agentId) => setDetail({ kind: "agent", agentId })}
+      />
 
       {!projectId || !project ? (
         <Center>{projectId ? "正在加载项目" : "还没有项目"}</Center>
@@ -101,9 +110,10 @@ function App() {
         <ProjectPanel
           project={project}
           meId={me.email}
-          onOpenFile={() => {
-            /* 文件详情在 Task 9 */
-          }}
+          detail={detail}
+          onDetail={setDetail}
+          onOpenProject={setProjectId}
+          onReload={reload}
         />
       )}
     </div>

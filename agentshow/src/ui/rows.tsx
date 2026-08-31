@@ -49,9 +49,27 @@ export function SectionHeader({
   );
 }
 
-export function MemberRow({ m, isMe }: { m: MemberView; isMe: boolean }) {
+export function MemberRow({
+  m,
+  isMe,
+  onOpen
+}: {
+  m: MemberView;
+  isMe: boolean;
+  /** 只有 agent 有身份卡可看，人类点了不该有反应。 */
+  onOpen?: (agentId: string) => void;
+}) {
+  const clickable = m.kind === "agent" && onOpen;
+
   return (
-    <div className="h-10 shrink-0 flex items-center px-4.5 gap-2.25">
+    <div
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={clickable ? () => onOpen(m.memberId) : undefined}
+      className={`h-10 shrink-0 flex items-center px-4.5 gap-2.25 ${
+        clickable ? "cursor-pointer hover:bg-[#FAFBFC]" : ""
+      }`}
+    >
       <Avatar member={m} size={22} />
       <span className="shrink-0 font-medium text-[#121313] text-xs/4">
         {m.name}

@@ -163,6 +163,25 @@ function versionClash(detail: string | null): string | undefined {
   return `手上是 ${base}，公共区已经是 ${current}`;
 }
 
+/**
+ * anchor 是自由文本 —— `commentOnProjectFile` 的说明里给的例子是「第 42 行」，
+ * 模型基本照着写，但没有强制。能认出来就把对应的行高亮，认不出就只当标签显示。
+ *
+ * 不把它做成结构化字段，是因为 anchor 也可能是「整体」「表头那一块」这种
+ * 指不到行的说法，而那些同样是有用的定位。
+ */
+export function parseAnchor(
+  anchor: string | null
+): { from: number; to: number } | null {
+  if (!anchor) return null;
+  const m = anchor.match(/(\d+)\s*(?:[-–—~]\s*(\d+))?\s*行/);
+  if (!m) return null;
+  const from = Number(m[1]);
+  const to = m[2] ? Number(m[2]) : from;
+  if (!from || to < from) return null;
+  return { from, to };
+}
+
 export type CollapsedActivity = { row: ActivityRow; count: number };
 
 /**

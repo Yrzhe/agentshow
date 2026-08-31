@@ -18,11 +18,13 @@ import {
 export function Sidebar({
   me,
   projectId,
-  onPickProject
+  onPickProject,
+  onOpenAgent
 }: {
   me: MeView;
   projectId: string | null;
   onPickProject: (id: string) => void;
+  onOpenAgent: (agentId: string) => void;
 }) {
   return (
     <div className="w-60 shrink-0 flex flex-col bg-[#F3F3F3] h-full">
@@ -70,15 +72,17 @@ export function Sidebar({
 
       <Section title="AGENT">
         {me.agents.map((a) => (
-          <div
+          <button
             key={a.memberId}
-            className="h-8.5 shrink-0 flex items-center px-2 rounded-[5px] gap-2.25"
+            type="button"
+            onClick={() => onOpenAgent(a.memberId)}
+            className="h-8.5 w-full shrink-0 flex items-center px-2 rounded-[5px] gap-2.25 text-left hover:bg-[#EAEAEA]"
           >
             <Avatar member={a} size={20} />
             <span className="grow min-w-0 truncate font-medium text-[#121313] text-xs/4">
               {a.name}
             </span>
-          </div>
+          </button>
         ))}
         {me.agents.length === 0 && <Empty>还没有 agent</Empty>}
       </Section>
