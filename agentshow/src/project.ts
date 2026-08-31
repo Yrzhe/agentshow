@@ -63,7 +63,8 @@ export class ProjectDO extends DurableObject<Env> {
         verb: "rejected",
         targetType: "file",
         targetId: input.path,
-        detail: `base ${input.baseVersion} vs current ${currentVersion}`
+        // 两个版本号，界面拿它拼「手上是 v1，公共区已经是 v2」。
+        detail: `v${input.baseVersion}→v${currentVersion}`
       });
       return {
         ok: false,

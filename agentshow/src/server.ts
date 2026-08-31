@@ -1,6 +1,7 @@
 import { Think } from "@cloudflare/think";
 import type { Session, TurnConfig, TurnContext } from "@cloudflare/think";
 import { routeAgentRequest } from "agents";
+import type { ModelMessage } from "ai";
 import { verifyAccess } from "./access";
 import { handleApi } from "./api";
 import { parseAgentKey } from "./agent-key";
@@ -13,6 +14,27 @@ export { WorkspaceDO } from "./workspace";
 
 /** DO storage 里存提及深度的键，加前缀避免跟 Agent 基类的键相撞。 */
 const MENTION_DEPTH_KEY = "agentshow:mentionDepth";
+
+/**
+ * 这条 session 的标题，只在第一轮定一次。
+ *
+ * 存在自己这儿而不是每轮回 ProjectDO 读：这个 DO 就是这条 session，
+ * 标题是它自己的属性。而且 ctx.messages 是截断过的，晚一点第一条用户
+ * 消息会掉出窗口 —— 那时再取标题会取到中途的某句话。
+ */
+const SESSION_TITLE_KEY = "agentshow:sessionTitle";
+
+/** 取第一条用户消息当标题。ModelMessage 的 content 可能是字符串也可能是分段。 */
+function firstUserText(messages: ModelMessage[]): string {
+  const m = messages.find((x) => x.role === "user");
+  if (!m) return "";
+  const text = (
+    typeof m.content === "string"
+      ? m.content
+      : m.content.map((p) => (p.type === "text" ? p.text : "")).join("")
+  ).trim();
+  return text.length > 30 ? `${text.slice(0, 30)}…` : text;
+}
 
 export class AgentDO extends Think<Env> {
   // 默认开启的 bash 工具会快照上千个工作区文件，对这个产品是纯负担。
@@ -78,6 +100,12 @@ export class AgentDO extends Think<Env> {
     // 存下深度，供这一轮里它自己再 @ 别人时递增。
     await this.ctx.storage.put(MENTION_DEPTH_KEY, p.depth);
 
+    // 被 @ 唤醒的 session 在这里定标题。不定的话，标题会从下面那段
+    // 拼给模型的提示里截出来，会话列表上就是一行截断的机器话。
+    if (!(await this.ctx.storage.get<string>(SESSION_TITLE_KEY))) {
+      await this.ctx.storage.put(SESSION_TITLE_KEY, `被提及 · ${p.path}`);
+    }
+
     const text = [
       `${p.fromAgentId} 在文件 ${p.path} 上 @ 了你：`,
       p.message,
@@ -118,13 +146,22 @@ export class AgentDO extends Think<Env> {
    *
    * DM 没有 project，就只有私有盘，没有公共区工具。
    */
-  beforeTurn(_ctx: TurnContext): TurnConfig | void {
+  async beforeTurn(ctx: TurnContext): Promise<TurnConfig | void> {
     const { agentId, projectId } = this.key;
     if (!projectId) return;
 
     const project = this.env.ProjectDO.get(
       this.env.ProjectDO.idFromName(projectId)
     );
+
+    // 让这条 session 出现在 project 的会话列表里。没有这一步，
+    // 中栏永远是空的 —— 消息住在这个 DO 里，project 手里只有索引。
+    let title = await this.ctx.storage.get<string>(SESSION_TITLE_KEY);
+    if (!title) {
+      title = firstUserText(ctx.messages);
+      if (title) await this.ctx.storage.put(SESSION_TITLE_KEY, title);
+    }
+    await project.upsertSession({ agentId, title: title || undefined });
 
     return {
       tools: projectTools({
