@@ -1,8 +1,8 @@
 {
   "project": "agentshow",
   "prefix": "A",
-  "next_num": 33,
-  "updated": "2026-08-31T15:47:30Z",
+  "next_num": 36,
+  "updated": "2026-08-31T17:05:22Z",
   "issues": [
     {
       "id": "A-1",
@@ -676,6 +676,66 @@
           "ts": "2026-08-31T12:19:43Z",
           "author": "claude-code",
           "change": "created · backlog · P3"
+        }
+      ]
+    },
+    {
+      "id": "A-33",
+      "num": 33,
+      "title": "叫 dm 的 project 会和 DM 槽位撞同一个实例名",
+      "severity": "P2",
+      "status": "shipped",
+      "owner": "",
+      "batch": "",
+      "evidence": "src/agent-key.ts 里 dm 既是 DM 的保留编码又是合法 slug；实测 agentKey('a@x.com','ag') 与 agentKey('a@x.com','ag','dm') 产出同一字符串，parseAgentKey 还原成 projectId: null。Lane E 静态分析发现，我复现确认。",
+      "body": "后果不是跨租户，是同一个人内部：一条 project 叫 dm 的 session 会被解析成 DM，于是 beforeTurn 提前 return，静默地拿不到任何 project 工具。\n\n已修：建 project 时把 dm 挡掉（isProjectId）。",
+      "created": "2026-08-31T17:05:22Z",
+      "updated": "2026-08-31T17:05:22Z",
+      "history": [
+        {
+          "ts": "2026-08-31T17:05:22Z",
+          "author": "claude-code",
+          "change": "created · shipped · P2"
+        }
+      ]
+    },
+    {
+      "id": "A-34",
+      "num": 34,
+      "title": "修复自身引入：正文里夹带的旧深度标记能盖掉真实深度",
+      "severity": "P0",
+      "status": "shipped",
+      "owner": "",
+      "batch": "",
+      "evidence": "src/server.ts 的 notifyMention 先拼 agent 完全可控的 p.message，最后才追加真实 depthLine；而 depthInText 原本取第一个匹配。Lane F 报的，我写 probe 复现：正文含第 0 跳、末尾第 3 跳，读出来是 0。",
+      "body": "一个复述了自己收到的通知的 agent 会把旧的低深度带过去，于是每一跳都读到 0，A↔B 的环永远拦不住 —— 等于我这次修 A-3 时把它换了个形式又打开了。\n\n已修两处：拼装前 stripDepthMarks 抹掉正文里的标记；depthInText 改成取所有匹配里的最大值（在防死循环的闸上，少算一跳的代价远大于多算一跳）。",
+      "created": "2026-08-31T17:05:22Z",
+      "updated": "2026-08-31T17:05:22Z",
+      "history": [
+        {
+          "ts": "2026-08-31T17:05:22Z",
+          "author": "claude-code",
+          "change": "created · shipped · P0"
+        }
+      ]
+    },
+    {
+      "id": "A-35",
+      "num": 35,
+      "title": "修复自身引入：幂等键改成每次随机后，生产调用方永远命中不到去重",
+      "severity": "P1",
+      "status": "shipped",
+      "owner": "",
+      "batch": "",
+      "evidence": "src/api.ts 的 SendMention schema 原本没有 mentionId，deliverMention 缺省时每次生成新 UUID。Lane F 用 probe 连发两次相同 payload：两次 201，目标 listSubmissions() 为 2。",
+      "body": "A-4 原本的毛病是「内容相同就吞掉」，我改成随机 id 之后变成了反面：断线重试会把目标真的叫醒两次，重复写文件、重复计费。\n\n已修：API 接受调用方传的 mentionId 并透传；前端 Composer 为一次提交生成一个 id，成功前的重试复用它；duplicate 改成幂等成功（201）而不是 400。",
+      "created": "2026-08-31T17:05:22Z",
+      "updated": "2026-08-31T17:05:22Z",
+      "history": [
+        {
+          "ts": "2026-08-31T17:05:22Z",
+          "author": "claude-code",
+          "change": "created · shipped · P1"
         }
       ]
     }

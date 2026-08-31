@@ -7,7 +7,12 @@ import { handleApi } from "./api";
 import { type AgentKey, parseAgentKey, scoped } from "./agent-key";
 import { checkAgentRoute } from "./agent-route";
 import { projectTools } from "./agent-tools";
-import { deliverMention, depthInText, depthLine } from "./mention";
+import {
+  deliverMention,
+  depthInText,
+  depthLine,
+  stripDepthMarks
+} from "./mention";
 
 export { AgentIdentityDO } from "./agent-identity";
 export { ProjectDO } from "./project";
@@ -123,7 +128,9 @@ export class AgentDO extends Think<Env> {
 
     const text = [
       `${p.fromName} 在文件 ${p.path} 上 @ 了你：`,
-      p.message,
+      // 正文是发起方 agent 完全控制的。它复述自己收到的通知时会把旧的
+      // 低深度一起带过来，而真实深度追加在末尾 —— 不抹掉的话环就拦不住了。
+      stripDepthMarks(p.message),
       "",
       `先用 readProjectFile 读 ${p.path}，再决定怎么回应。`,
       depthLine(p.depth)

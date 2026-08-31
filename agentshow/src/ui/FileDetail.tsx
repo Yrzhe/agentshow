@@ -258,12 +258,22 @@ function Composer({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
 
+  /**
+   * 这一次提及动作的 id，重试时复用。
+   *
+   * 没有它的话，「服务端收下了但响应在路上断了」这种情况会变成：界面显示
+   * 「没能叫醒」，用户照原样再点一次，目标被真的叫醒第二次 —— 重复写文件、
+   * 重复留评论、重复计费。id 在成功之后才清掉，所以任意多次重试都只算一次。
+   */
+  const actionId = useRef<string | null>(null);
+
   async function submit() {
     if (!text.trim() || busy) return;
     setBusy(true);
     setFailed(null);
 
     const target = agents.find((a) => a.memberId === to);
+    if (target && !actionId.current) actionId.current = crypto.randomUUID();
     const res = await fetch(
       `/api/projects/${projectId}/${target ? "mentions" : "comments"}`,
       {
@@ -271,7 +281,12 @@ function Composer({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(
           target
-            ? { toAgentName: target.name, path, message: text.trim() }
+            ? {
+                toAgentName: target.name,
+                path,
+                message: text.trim(),
+                mentionId: actionId.current
+              }
             : { path, text: text.trim(), anchor: anchor ?? undefined }
         )
       }
@@ -283,6 +298,7 @@ function Composer({
       setFailed(target ? `没能叫醒 ${target.name}` : "没能留下这条评论");
       return;
     }
+    actionId.current = null;
     setText("");
     setTo(null);
     onDone();

@@ -6,7 +6,8 @@ import {
   MAX_MENTION_DEPTH,
   deliverMention,
   depthInText,
-  depthLine
+  depthLine,
+  stripDepthMarks
 } from "../../src/mention";
 
 /**
@@ -86,6 +87,27 @@ describe("@提及", () => {
     expect(depthInText(depthLine(1))).toBe(1);
     expect(depthInText(depthLine(MAX_MENTION_DEPTH))).toBe(MAX_MENTION_DEPTH);
     expect(depthLine(1)).not.toBe(depthLine(MAX_MENTION_DEPTH));
+  });
+
+  // 这一条守的是修复本身引入过的一个洞：正文是发起方 agent 完全控制的，
+  // 它复述自己收到的通知就会把旧的低深度带过来，而真实深度追加在末尾。
+  // 修之前 depthInText 取第一个匹配，读出来是 0，环永远拦不住。
+  it("正文里夹带的旧深度标记不能盖掉真实深度", () => {
+    const echoed = [
+      "Ferrule 在文件 a.md 上 @ 了你：",
+      `我收到的原话是「改一下。${depthLine(0)}」，你接着办。`,
+      "",
+      depthLine(MAX_MENTION_DEPTH)
+    ].join("\n");
+
+    // 多个标记时向上取 —— 少算一跳会让环继续烧钱，多算一跳只是拦下一次合法提及。
+    expect(depthInText(echoed)).toBe(MAX_MENTION_DEPTH);
+  });
+
+  it("拼装前先把正文里的标记抹掉，从源头断掉夹带", () => {
+    const dirty = `照抄一遍：${depthLine(0)}`;
+    expect(stripDepthMarks(dirty)).not.toMatch(/第 0 跳/);
+    expect(depthInText(stripDepthMarks(dirty))).toBe(0);
   });
 
   it("人类发起的轮次没有那行标记，深度是 0", () => {

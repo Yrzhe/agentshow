@@ -35,14 +35,34 @@ export function depthLine(depth: number): string {
   return `（这是提及链的第 ${depth} 跳，最多 ${MAX_MENTION_DEPTH} 跳）`;
 }
 
-const DEPTH_RE = /（这是提及链的第 (\d+) 跳，最多 \d+ 跳）/;
+const DEPTH_RE = /（这是提及链的第 (\d+) 跳，最多 \d+ 跳）/g;
 
-/** 从一段消息正文里读回深度。人类发起的轮次没有这行标记，返回 0。 */
+/**
+ * 把提及正文里的深度标记抹掉。
+ *
+ * 正文是**发起方 agent 完全控制**的（`mentionAgent` 的 message 参数）。
+ * 不抹的话，一个复述了自己收到的通知的 agent 会把旧的低深度一起带过去，
+ * 而拼接时真实深度追加在末尾 —— 于是每一跳都读到 0，A↔B 的环永远拦不住。
+ * 实测：正文含「第 0 跳」、末尾追加「第 3 跳」，读出来是 0。
+ */
+export function stripDepthMarks(text: string): string {
+  return text.replace(DEPTH_RE, "（深度标记已移除）");
+}
+
+/**
+ * 从一段消息正文里读回深度。人类发起的轮次没有这行标记，返回 0。
+ *
+ * 出现多个标记时**向上取**而不是取第一个：这是不该发生的情况，
+ * 而在一个防死循环的闸上，猜错的代价不对称 —— 少算一跳会让环继续烧钱，
+ * 多算一跳只是让一次合法提及被拦下并报错。
+ */
 export function depthInText(text: string): number {
-  const hit = text.match(DEPTH_RE);
-  if (!hit) return 0;
-  const n = Number(hit[1]);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
+  const found = [...text.matchAll(DEPTH_RE)]
+    .map((m) => Number(m[1]))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+
+  if (found.length === 0) return 0;
+  return Math.max(...found);
 }
 
 export type MentionInput = {

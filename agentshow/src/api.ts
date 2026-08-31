@@ -8,7 +8,7 @@ import type {
   MemberView,
   ProjectView
 } from "./api-types";
-import { scoped } from "./agent-key";
+import { isProjectId, scoped } from "./agent-key";
 import { deliverMention } from "./mention";
 import type { Member } from "./project-schema";
 import type { WorkspaceDO } from "./workspace";
@@ -31,7 +31,8 @@ const SLUG = z
   .regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "只能是小写字母、数字和连字符");
 
 const CreateProject = z.object({
-  projectId: SLUG,
+  // dm 是 DM 槽位的保留字，拿它当 project id 会和 DM 撞同一个实例名。
+  projectId: SLUG.refine(isProjectId, "dm 是保留字，不能当项目 id"),
   name: z.string().min(1).max(80)
 });
 
@@ -56,7 +57,14 @@ const AddComment = z.object({
 const SendMention = z.object({
   toAgentName: z.string().min(1).max(40),
   path: z.string().min(1).max(400),
-  message: z.string().min(1).max(4000)
+  message: z.string().min(1).max(4000),
+  /**
+   * 这一次提及动作的 id，由发起方生成并在重试时复用。
+   *
+   * 缺省时服务端现生成一个，也就是「每次请求都是一次新的提及」——
+   * 那样断线重试会把目标真的叫醒两次。前端必须传。
+   */
+  mentionId: z.string().min(8).max(64).optional()
 });
 
 function json(body: unknown, status = 200): Response {
@@ -330,7 +338,10 @@ export async function handleApi(
       depth: 0,
       ...parsed.data
     });
-    return json(result, result.ok ? 201 : 400);
+    // duplicate 是幂等成功：这条提及早就投递过了，重试不该报错。
+    // 只有真的没送到（unknown_agent / max_depth）才是 400。
+    const duplicated = !result.ok && result.reason === "duplicate";
+    return json(result, result.ok || duplicated ? 201 : 400);
   }
 
   return json({ error: "not found" }, 404);

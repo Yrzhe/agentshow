@@ -27,6 +27,20 @@ const SCOPE_SEP = "~";
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /**
+ * project 槽位的保留字：DM 用它表示「没有 project」。
+ *
+ * 它同时是一个合法 slug，所以一个真叫 `dm` 的 project 会和 DM 槽位
+ * 拼出同一个实例名，而 parseAgentKey 会把它还原成 projectId: null ——
+ * 那条 session 于是静默地拿不到任何 project 工具。建 project 时必须挡掉。
+ */
+export const DM_SLOT = "dm";
+
+/** 能不能拿来当 project id。 */
+export function isProjectId(slug: string): boolean {
+  return SLUG_RE.test(slug) && slug !== DM_SLOT;
+}
+
+/**
  * `${owner}~${slug}` —— ProjectDO 和 AgentIdentityDO 的实例名。
  *
  * 用最后一个分隔符切分，不是第一个：邮箱里可以合法出现 `~`，而 slug 里不会。
@@ -51,7 +65,7 @@ export function agentKey(
   agentId: string,
   projectId?: string
 ): string {
-  return `${owner}${SCOPE_SEP}${agentId}:${projectId ?? "dm"}`;
+  return `${owner}${SCOPE_SEP}${agentId}:${projectId ?? DM_SLOT}`;
 }
 
 export type AgentKey = {
@@ -81,11 +95,11 @@ export function parseAgentKey(name: string): AgentKey | null {
   const projectSlot = rest.slice(colon + 1);
 
   if (!SLUG_RE.test(agentId)) return null;
-  if (projectSlot !== "dm" && !SLUG_RE.test(projectSlot)) return null;
+  if (projectSlot !== DM_SLOT && !SLUG_RE.test(projectSlot)) return null;
 
   return {
     owner,
     agentId,
-    projectId: projectSlot === "dm" ? null : projectSlot
+    projectId: projectSlot === DM_SLOT ? null : projectSlot
   };
 }

@@ -13,7 +13,19 @@ import { parseAgentKey } from "./agent-key";
  * 前缀是路由层的事实，不是请求方可以声称的值。
  */
 
-/** agents SDK 的路径形状：/agents/<namespace>/<instance-name>/... */
+/**
+ * agents SDK 的路径形状：`/agents/<namespace>/<instance-name>/...`
+ *
+ * 这是 SDK 唯一接受的形状（`routeAgentRequest` 转给 partyserver 的
+ * `routePartykitRequest`，后者按 `/` 切分、过滤空段、固定取第 2、3 段，
+ * 见 node_modules/partyserver/dist/index.js:482-508）。尾斜杠、重复斜杠、
+ * 额外的 handler 子路径都只是同一种形状的等价写法。
+ *
+ * **下面的索引和 SDK 是耦合的。** `routeAgentRequest` 支持用 `options.prefix`
+ * 换掉默认前缀，也支持多段前缀 —— 一旦那么做而这里不跟着改，
+ * 实例名就会落在 parts[1] 以外，闸会去校验一个错误的段。
+ * 当前没有传第三个参数，所以前缀就是单段的 agents。
+ */
 const AGENTS_PREFIX = "/agents/";
 
 export type RouteCheck =

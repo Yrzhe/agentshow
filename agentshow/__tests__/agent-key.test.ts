@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { agentKey, parseAgentKey, scoped, unscope } from "../src/agent-key";
+import {
+  agentKey,
+  isProjectId,
+  parseAgentKey,
+  scoped,
+  unscope
+} from "../src/agent-key";
 
 /**
  * DO 实例名就是 session 的身份：`${owner}~${agentId}:${projectId}`。
@@ -83,6 +89,19 @@ describe("agentKey / parseAgentKey", () => {
         projectId: "pricing"
       });
     });
+  });
+});
+
+describe("dm 是保留字", () => {
+  it("叫 dm 的 project 会和 DM 槽位撞同一个实例名", () => {
+    // 这就是为什么建 project 时要挡掉它。
+    expect(agentKey("a@x.com", "ag")).toBe(agentKey("a@x.com", "ag", "dm"));
+  });
+
+  it("isProjectId 挡住它，别的合法 slug 照过", () => {
+    expect(isProjectId("dm")).toBe(false);
+    expect(isProjectId("pricing")).toBe(true);
+    expect(isProjectId("Pricing")).toBe(false);
   });
 });
 
