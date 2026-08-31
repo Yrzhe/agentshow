@@ -465,6 +465,133 @@ Task 10 要复现这个演练时，用那时会有的 seed 脚本，不要再开
 
 ---
 
+## [2026-08-31T06:26:02.663Z] · design-decision · claude-code
+**WorkspaceDO：第四类 DO，按人记账**
+
+Task 8 需要左栏列出「我的项目」和「我的 agent」，但对象模型里没有能回答这个问题的地方：
+`ProjectDO` 和 `AgentIdentityDO` 都按名字寻址，知道名字才能拿到实例，跨 DO 查不出集合。
+
+加了 `WorkspaceDO`（migration v3），一个人一个实例，实例名是 Cloudflare Access 验过的邮箱。
+不另造 userId —— 鉴权已经给出唯一身份，再发一个 id 只会多一张要对齐的映射表。
+
+它只记「有哪些」（project id + 名字、agent id），不记「是什么」。名字、简介、头像留在
+`AgentIdentityDO`：抄一份到工作台就会漂，而两处不一致时界面显示哪个都是错的。
+
+这不是投机 —— 左栏没有它就画不出来。但它确实是 spec 和 plan 里都没有的第四类 DO，
+记在这里以免后来的人以为对象模型只有三类。
+
+顺带的安全后果：`projectId` 是可猜的 slug（`pricing`、`sea-saas`）。`/api/projects/:id` 的
+读写都先查这个 project 在不在调用者自己的工作台里，不查的话任何登录用户改一下 URL
+就能读到别人的 project。这条有测试守着（`__tests__/do/api.test.ts`「读不到别人工作台里的 project」），
+反事实验过：去掉归属检查那一条立刻红（expected 200 to be 404）。
+
+---
+
+## [2026-08-31T06:26:35.622Z] · deviation · claude-code
+**界面四处不照搬设计稿**
+
+Paper 上 `project overview` / `files · 完整列表` / `activity · 完整流` 三张稿实现时有四处没照搬。
+都不是偷懒，是照搬会让界面说出跟产品主张相反的话，或者说出假话。
+
+**1. 人类不给照片，给首字母盘。** 设计稿里 yrzhe 是一张真人头像，agent 是插画徽记。
+一张真人照片在一列插画里永远是最抢眼的那个 —— 成员表第一行就把「人在协作、agent 是工具」
+的老结论读回去了，而这个产品整件事就是要否定这句话。人类给一个安静的灰底首字母盘。
+
+**2. 去掉 agent 的在线状态点。** 设计稿里 Ferrule / Verdigris 是绿点、Sable 是灰点。
+后端没有任何东西能驱动它：要知道「这个 agent 此刻在不在干活」，得挨个问它在每个 project
+里的 AgentDO。一个永远亮着的绿点是假的，而假的状态指示器正是让 demo 露馅的东西。
+
+**3. 去掉文件夹、上传、新建文件夹。** 设计稿的文件 tab 有「交付物」「素材」两个文件夹和
+两个按钮。后端的 `files` 表是平的，路径就是主键，没有目录概念。画一个点不动的按钮比不画更糟。
+
+**4. `rejected` 那一行的措辞改了。** 设计稿写的是「Ferrule 重做了一次写入 — 文件已被改动 /
+基于 v2 重读后写成 v3」。但活动记录发生在**拒绝的那一刻**，那时重做成没成功还不知道。
+改成「Ferrule 的写入撞上了别人的改动 / 手上是 v1，公共区已经是 v2」，重做本身作为紧随其后的
+一条 `updated` 出现 —— 两行连读反而比一行断言更能说明发生了什么。
+
+同时把 `ProjectDO.writeFile` 存的 detail 从 `base 1 vs current 2`（一句给人看的英文残句）
+改成 `v1→v2`，让界面自己拼中文。
+
+---
+
+## [2026-08-31T06:27:10.590Z] · design-decision · claude-code
+**session 索引的写入方与标题时机**
+
+`session_index` 表从 Task 4 建好起就没有任何写入方 —— 表是死的，中栏永远是空的。
+Task 8 补上，顺带定了两件事。
+
+**标题只在第一轮定一次，存在 AgentDO 自己的 storage 里。**
+`TurnContext.messages` 文档里明写是 truncated + pruned 的，晚一点第一条用户消息会掉出窗口，
+那时再取标题会取到对话中途的某句话。所以第一轮取到之后存进 `agentshow:sessionTitle`，
+以后每轮都上报同一个值。存在 AgentDO 而不是每轮回 ProjectDO 读：这个 DO 就是这条 session，
+标题是它自己的属性，而且省一次跨 DO 往返。
+
+没有改 `upsertSession` 的语义（显式给标题就覆盖）—— 那样会和
+`__tests__/do/project-members.test.ts` 里「换了个标题」那条测试冲突，
+而「标题可改」本身是对的，只是这个调用方不该每轮改。
+
+**被 @ 唤醒的 session 在 `notifyMention` 里定标题。**
+不定的话，标题会从拼给模型的那段提示里截出来，会话列表上就是
+「ferrule 在文件 pricing-table.tsx …」这样一行截断的机器话。改成 `被提及 · <路径>`。
+
+**status 永远是 `in_progress`。** 设计稿里有「已完成」，但后端没有任何东西会把它置成 done ——
+需要一个 agent 主动调用的 `completeSession` 工具（`ActivityVerb` 里已经留了 `completed`）。
+没做，因为 Task 8 的范围是面板。界面照数据渲染，所以现在只会显示「进行中」，不假装。
+
+---
+
+## [2026-08-31T06:27:10.686Z] · tradeoff · claude-code
+**右栏 4 秒轮询，不做推送**
+
+右栏是一次性快照，而 agent 干活是异步的：它写文件、留评论、@别人都发生在推理过程中。
+不轮询的话，演示时每一步都要手动刷新才看得见 agent 做了什么 —— 那正好毁掉「全程可见」这个卖点。
+
+现在 4 秒轮询一次 `/api/projects/:id`。
+
+**代价**：每个开着的浏览器每 4 秒一次 DO 读，而且它读的是整个 project 的快照
+（成员 + 文件 + 评论数 + 50 条活动 + session 列表）。单人演示无所谓，多人常驻会是笔真开销。
+
+**为什么不用 WebSocket 推**：`routeAgentRequest` 的 WS 是 agent 会话的通道，
+ProjectDO 不是 Agent，没有现成的推送面。给它加一条推送链路（DO 之间的订阅 + 一个新的 WS 端点）
+是真的工程量，而它解决的是一个演示阶段还不存在的问题。
+
+**什么时候该换掉**：出现第二个人同时看同一个 project 的时候。那时轮询的浪费会随人数线性涨，
+而且两个人看到的活动流会差最多 4 秒 —— 协作场景里这个差值开始有意义。
+
+---
+
+## [2026-08-31T06:27:35.047Z] · deviation · claude-code
+**三个写端点从 Task 10 提前到 Task 8**
+
+Plan 把三个写端点放在 Task 10 的 `scripts/seed.ts` 里。Task 8 提前做了，因为
+Task 8 Step 5 是「人工过一遍界面」—— 没有 project、没有 agent、没有成员，界面上没有任何东西可看，
+这一步根本执行不了。
+
+提前的是 `POST /api/projects`、`POST /api/agents`、`POST /api/projects/:id/members`。
+它们不是演示脚手架，是产品本来就需要的三件事，Task 10 的 seed 脚本改成调它们即可，不会重复实现。
+
+**没做的**：这三件事的界面入口。设计稿里的「新对话」「我的 Agent」「管理」「+」目前都不可点。
+剧本七步里没有一步需要从界面建 project 或建 agent，所以按 plan 的范围留着。
+
+顺带清掉：`writeFile` 里一段绕了运算符优先级的垃圾表达式
+`detail: c.anchor ?? null ? c.anchor : undefined`，结果碰巧对但没人能一眼看懂，改成 `c.anchor`。
+
+---
+
+## [2026-08-31T06:28:24.399Z] · resolution · claude-code
+**更正：那段垃圾表达式不是 Task 8 清的**
+
+上一条「三个写端点从 Task 10 提前到 Task 8」的末尾说 Task 8 顺带清掉了
+`detail: c.anchor ?? null ? c.anchor : undefined`。两处不准，更正如下。
+
+- 它在 `addComment`，不在 `writeFile`。
+- 它不是 Task 8 清的。`git log -S 'c.anchor ?? null ?' -- agentshow/src/project.ts` 没有任何命中，
+  说明这段表达式从未进过一次提交 —— 是 Task 7 提交前就改掉的，Task 8 没碰它。
+
+当前状态（`agentshow/src/project.ts:218`）是 `detail: c.anchor`，正确。
+
+---
+
 </script>
 <script type="application/json" id="issues-data">
 {"projects": []}
