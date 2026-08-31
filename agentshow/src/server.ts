@@ -4,9 +4,13 @@ import { routeAgentRequest } from "agents";
 import { verifyAccess } from "./access";
 import { parseAgentKey } from "./agent-key";
 import { projectTools } from "./agent-tools";
+import { deliverMention } from "./mention";
 
 export { AgentIdentityDO } from "./agent-identity";
 export { ProjectDO } from "./project";
+
+/** DO storage 里存提及深度的键，加前缀避免跟 Agent 基类的键相撞。 */
+const MENTION_DEPTH_KEY = "agentshow:mentionDepth";
 
 export class AgentDO extends Think<Env> {
   // 默认开启的 bash 工具会快照上千个工作区文件，对这个产品是纯负担。
@@ -54,12 +58,61 @@ export class AgentDO extends Think<Env> {
       .withCachedPrompt();
   }
 
+  // ── @提及的接收端 ──────────────────────────────────────────────────────
+
+  /**
+   * 被别的 agent @ 到时的入口。
+   *
+   * 用 submitMessages 而不是直接跑一轮：它是持久化的接收边界 —— 调用方
+   * （提及的发起方）立刻返回，不等推理；带幂等键，同一条提及重投不会
+   * 产生两条消息。目标 agent 不需要在线，DO 睡着也不丢。
+   */
+  async notifyMention(p: {
+    fromAgentId: string;
+    path: string;
+    message: string;
+    depth: number;
+  }): Promise<void> {
+    // 存下深度，供这一轮里它自己再 @ 别人时递增。
+    await this.ctx.storage.put(MENTION_DEPTH_KEY, p.depth);
+
+    const text = [
+      `${p.fromAgentId} 在文件 ${p.path} 上 @ 了你：`,
+      p.message,
+      "",
+      `先用 readProjectFile 读 ${p.path}，再决定怎么回应。`
+    ].join("\n");
+
+    await this.submitMessages(
+      [{ id: crypto.randomUUID(), role: "user", parts: [{ type: "text", text }] }],
+      {
+        // 同一个人在同一个文件上说同一句话，重投不该变成两轮。
+        idempotencyKey: `mention:${p.fromAgentId}:${p.path}:${p.message}`,
+        metadata: { source: "mention", from: p.fromAgentId, depth: p.depth }
+      }
+    );
+  }
+
+  /** 当前轮次所处的提及深度。人类发起的轮次是 0。 */
+  async currentMentionDepth(): Promise<number> {
+    return (await this.ctx.storage.get<number>(MENTION_DEPTH_KEY)) ?? 0;
+  }
+
+  /**
+   * 轮次结束就把深度清掉。
+   * 不清的话，人类的下一轮会读到上一条提及链留下的陈旧深度，
+   * 于是一条正常的人类请求会被当成第 3 跳而拒绝再提及。
+   */
+  async onChatResponse(): Promise<void> {
+    await this.ctx.storage.delete(MENTION_DEPTH_KEY);
+  }
+
   /**
    * project 工具按轮注入，不放在 getTools() —— 后者没有参数，拿不到上下文。
    *
-   * project 来自 DO 实例名，不是请求 body：客户端伪造不了实例名，
-   * 但能伪造 body。走实例名等于把"这条 session 属于哪个 project"
-   * 变成路由层的事实，而不是一个可以被请求方声称的值。
+   * project 来自 DO 实例名，不是请求 body：客户端伪造不了实例名，但能伪造 body。
+   * 走实例名等于把「这条 session 属于哪个 project」变成路由层的事实，
+   * 而不是一个可以被请求方声称的值。
    *
    * DM 没有 project，就只有私有盘，没有公共区工具。
    */
@@ -67,8 +120,26 @@ export class AgentDO extends Think<Env> {
     const { agentId, projectId } = this.key;
     if (!projectId) return;
 
-    const stub = this.env.ProjectDO.get(this.env.ProjectDO.idFromName(projectId));
-    return { tools: projectTools(stub, agentId) };
+    const project = this.env.ProjectDO.get(
+      this.env.ProjectDO.idFromName(projectId)
+    );
+
+    return {
+      tools: projectTools({
+        project,
+        authorId: agentId,
+        mention: async (input) =>
+          deliverMention(this.env, {
+            projectId,
+            fromAgentId: agentId,
+            toAgentName: input.toAgentName,
+            path: input.path,
+            message: input.message,
+            // 当前深度 + 1 —— 我被 @ 到第 n 跳，我再 @ 别人就是第 n+1 跳。
+            depth: (await this.currentMentionDepth()) + 1
+          })
+      })
+    };
   }
 }
 

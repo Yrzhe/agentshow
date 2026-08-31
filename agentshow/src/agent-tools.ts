@@ -14,13 +14,30 @@ export const PROJECT_TOOL_NAMES = [
   "listProjectFiles",
   "readProjectFile",
   "writeProjectFile",
-  "commentOnProjectFile"
+  "commentOnProjectFile",
+  "mentionAgent"
 ] as const;
 
-export function projectTools(
-  project: DurableObjectStub<ProjectDO>,
-  authorId: string
-): ToolSet {
+export type ProjectToolDeps = {
+  project: DurableObjectStub<ProjectDO>;
+  /** 谁在干这件事 —— 文件归属、评论作者、提及发起方都用它。 */
+  authorId: string;
+  /**
+   * 投递一条 @提及。做成回调而不是让这里直接拿 env，
+   * 是为了把「怎么投递」留在 server.ts，这个模块只管定义工具。
+   */
+  mention: (input: {
+    toAgentName: string;
+    path: string;
+    message: string;
+  }) => Promise<{ ok: boolean; reason?: string }>;
+};
+
+export function projectTools({
+  project,
+  authorId,
+  mention
+}: ProjectToolDeps): ToolSet {
   return {
     listProjectFiles: tool({
       description:
@@ -86,6 +103,26 @@ export function projectTools(
         project.addComment({ ...input, authorId });
         return { ok: true };
       }
+    }),
+
+    // 这是你能让另一个 agent 动起来的唯一方式 —— 没有群聊，
+    // 所以 agent 之间不共享消息流。
+    mentionAgent: tool({
+      description:
+        "在某个文件上 @ 另一个 agent，把它叫来处理。被 @ 的 agent 会收到通知，" +
+        "读那个文件，然后决定怎么做 —— 它可能改文件，也可能只留评论。\n" +
+        "先把你的产出写进公共区，再 @ 人来看，不要 @ 完了才写。\n" +
+        "message 里说清你要它做什么、看哪里。别的 agent 看不到你和用户的对话，" +
+        "它只有这条消息和那个文件。\n" +
+        "如果返回 unknown_agent，说明这个名字不在本 project 的成员里 —— " +
+        "先用 listProjectFiles 之外的方式确认名字，或者直接告诉用户没找到这个人，" +
+        "不要假装已经通知到了。",
+      inputSchema: z.object({
+        toAgentName: z.string().describe("要 @ 的 agent 名字，例如 Verdigris"),
+        path: z.string().describe("讨论围绕哪个文件"),
+        message: z.string().describe("你要它做什么，说具体")
+      }),
+      execute: async (input) => mention(input)
     })
   };
 }

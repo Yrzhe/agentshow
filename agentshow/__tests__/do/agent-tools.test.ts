@@ -11,7 +11,12 @@ import { projectTools } from "../../src/agent-tools";
 
 function toolsFor(agentName: string) {
   const stub = env.ProjectDO.get(env.ProjectDO.idFromName("p-tools"));
-  return projectTools(stub, agentName);
+  return projectTools({
+    project: stub,
+    authorId: agentName,
+    // 这组测试只验 project 文件工具，提及走 mention.test.ts。
+    mention: async () => ({ ok: true })
+  });
 }
 
 async function run<T = unknown>(tool: { execute?: unknown }, input: unknown): Promise<T> {
