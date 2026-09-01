@@ -29,14 +29,15 @@ const base = {
   projectId: PROJECT,
   fromId: "ferrule",
   path: "spec.md",
-  message: "帮我复审一下第 42 行"
+  message: "帮我复审一下第 42 行",
+  depth: 1
 };
 
 describe("@提及", () => {
   it("按名字解析到 agent 并投递成功", async () => {
     await seedMembers();
     const r = await deliverMention(env, { ...base, toAgentName: "Verdigris" });
-    expect(r).toMatchObject({ ok: true, toAgentId: "verdigris" });
+    expect(r).toEqual({ ok: true, toAgentId: "verdigris", depth: 1 });
   });
 
   it("解析不到的名字返回明确失败，不静默丢弃", async () => {
@@ -56,64 +57,8 @@ describe("@提及", () => {
 
   // 深度由服务端从提及链算出来。之前两版分别栽在「存在跨轮的单值键」
   // 和「写进消息正文」上 —— 那两个地方都是别人能写的。
-  const CHAIN = "p-chain";
-
-  it("人发起的是第 0 跳，链条一跳一跳往上加", async () => {
-    const p = env.ProjectDO.get(env.ProjectDO.idFromName(scoped(OWNER, CHAIN)));
-    await runInDurableObject(p, async (o) => {
-      o.addMember({ memberId: "human@x.com", kind: "human", name: "人" });
-      o.addMember({ memberId: "ferrule", kind: "agent", name: "Ferrule" });
-      o.addMember({ memberId: "verdigris", kind: "agent", name: "Verdigris" });
-    });
-
-    // 人 @ Verdigris —— 人从没被 @ 过，所以是第 0 跳
-    const h = await deliverMention(env, {
-      ...base,
-      projectId: CHAIN,
-      fromId: "human@x.com",
-      toAgentName: "Verdigris"
-    });
-    expect(h).toMatchObject({ ok: true, depth: 0 });
-
-    // Verdigris 现在被叫醒过（第 0 跳），它再 @ Ferrule 就是第 1 跳
-    const v = await deliverMention(env, {
-      ...base,
-      projectId: CHAIN,
-      fromId: "verdigris",
-      toAgentName: "Ferrule"
-    });
-    expect(v).toMatchObject({ ok: true, depth: 1 });
-  });
-
-  it("超过上限被拦下 —— 防 A @ B、B @ A 的死循环", async () => {
-    const p = env.ProjectDO.get(env.ProjectDO.idFromName(scoped(OWNER, CHAIN)));
-    // 把链条推到上限：假装 ferrule 已经被叫醒到第 3 跳
-    await runInDurableObject(p, async (o) => {
-      o.recordMentionHop({ toAgentId: "ferrule", depth: MAX_MENTION_DEPTH });
-    });
-
-    const r = await deliverMention(env, {
-      ...base,
-      projectId: CHAIN,
-      toAgentName: "Verdigris"
-    });
-    expect(r).toEqual({ ok: false, reason: "max_depth" });
-  });
-
-  it("窗口之外的旧记录不算 —— 一小时前被 @ 过不该压住现在的对话", async () => {
-    const p = env.ProjectDO.get(env.ProjectDO.idFromName(scoped(OWNER, CHAIN)));
-    await runInDurableObject(p, async (o) => {
-      o.recordMentionHop({
-        toAgentId: "sable",
-        depth: MAX_MENTION_DEPTH,
-        at: Date.now() - 60 * 60_000
-      });
-      // 一小时前那一跳，15 分钟的窗口看不见
-      expect(o.lastMentionDepth("sable", 15 * 60_000)).toBeNull();
-      // 放宽到两小时就看得见
-      expect(o.lastMentionDepth("sable", 2 * 60 * 60_000)).toBe(MAX_MENTION_DEPTH);
-    });
-  });
+  // 链条的不变量（环会停、上限包含、并发互不干扰）在
+  // __tests__/do/mention-chain.test.ts，那里用完整形状断言逐跳验。
 
   it("同一条提及重投返回 duplicate，不再谎报成功", async () => {
     const id = "mention-fixed-id";
@@ -122,7 +67,7 @@ describe("@提及", () => {
       toAgentName: "Verdigris",
       mentionId: id
     });
-    expect(first).toMatchObject({ ok: true, toAgentId: "verdigris" });
+    expect(first).toEqual({ ok: true, toAgentId: "verdigris", depth: 1 });
 
     const again = await deliverMention(env, {
       ...base,

@@ -1,8 +1,8 @@
 {
   "project": "agentshow",
   "prefix": "A",
-  "next_num": 38,
-  "updated": "2026-09-01T02:50:41Z",
+  "next_num": 42,
+  "updated": "2026-09-01T03:59:31Z",
   "issues": [
     {
       "id": "A-1",
@@ -781,6 +781,86 @@
           "ts": "2026-09-01T02:50:41Z",
           "author": "claude-code",
           "change": "created · shipped · P1"
+        }
+      ]
+    },
+    {
+      "id": "A-38",
+      "num": 38,
+      "title": "提及深度绑到当前 submission —— 时间窗账本替代不了链条身份",
+      "severity": "P1",
+      "status": "shipped",
+      "owner": "",
+      "batch": "",
+      "evidence": "两条 lane 独立报同一条。Sump 实测：给 a 写入 [0,3] 两条记录后，a 走短链 @ B 得到 max_depth。Bramble 补上反方向：depth=3 的提及排队超过 15 分钟窗口后，下一跳被重算成 0，第 4 跳会被放行。",
+      "body": "这是深度机制的第四版。前三版：AgentDO 跨轮单值键（并发覆盖）→ 消息正文（可夹带可伪造）→ ProjectDO 时间窗账本（窗口≠链条身份）。\n\n实测确认了一个我原本判断做不到的接缝：beforeTurn 里 listSubmissions({status:'running'}) 恰好返回当前这一条，metadata 带着 depth。\nPROBE running= [{id:…, md:{source:mention, from:dev@localhost, depth:0}}]\n\n于是深度绑在 submission 上 —— 它就是「这一轮」本身，前三版都是它的近似。\n连带删掉整张 mention_chain 表、窗口、MAX 聚合，以及 Sump 报的另一条 HIGH（投递与记账不原子，重投走 duplicate 提前返回导致永久漏记一跳）和 LOW（表只增不删无上界）—— 那些问题随账本一起消失。",
+      "created": "2026-09-01T03:59:31Z",
+      "updated": "2026-09-01T03:59:31Z",
+      "history": [
+        {
+          "ts": "2026-09-01T03:59:31Z",
+          "author": "claude-code",
+          "change": "created · shipped · P1"
+        }
+      ]
+    },
+    {
+      "id": "A-39",
+      "num": 39,
+      "title": "mentionAgent 的说明没告诉模型 max_depth 是终止信号",
+      "severity": "P2",
+      "status": "shipped",
+      "owner": "",
+      "batch": "",
+      "evidence": "src/mention.ts 的 MentionResult 有 max_depth 分支，但 src/agent-tools.ts 的 description 只解释了 unknown_agent。Sump 指出模型可能换个说法重试，白耗工具步。",
+      "body": "已补：明确写出这是终止信号，不要改写措辞重试、不要换目标、不要在这一轮再调这个工具，把手上的活做完并告诉用户链条到头了。",
+      "created": "2026-09-01T03:59:31Z",
+      "updated": "2026-09-01T03:59:31Z",
+      "history": [
+        {
+          "ts": "2026-09-01T03:59:31Z",
+          "author": "claude-code",
+          "change": "created · shipped · P2"
+        }
+      ]
+    },
+    {
+      "id": "A-40",
+      "num": 40,
+      "title": "三处成功响应断言被放松成部分匹配",
+      "severity": "P3",
+      "status": "shipped",
+      "owner": "",
+      "batch": "",
+      "evidence": "我上一轮把 toEqual 改成 toMatchObject 来容纳新增的 depth 字段（实际是三处，我自报时说的两处）。Bramble 指出成功响应意外带上 reason 或别的泄漏字段时测试仍会绿。",
+      "body": "已改回完整形状断言：toEqual({ok:true, toAgentId, depth})，链条测试逐跳断言完整返回值。",
+      "created": "2026-09-01T03:59:31Z",
+      "updated": "2026-09-01T03:59:31Z",
+      "history": [
+        {
+          "ts": "2026-09-01T03:59:31Z",
+          "author": "claude-code",
+          "change": "created · shipped · P3"
+        }
+      ]
+    },
+    {
+      "id": "A-41",
+      "num": 41,
+      "title": "历史 dm 项目被静默从列表抹掉，没有迁移或提示",
+      "severity": "P3",
+      "status": "open",
+      "owner": "",
+      "batch": "",
+      "evidence": "src/workspace.ts 的 listProjects 过滤非法行、getProject 返回 null，于是升级前存在的 dm 行会从 /api/me 消失、直接访问 404，而数据仍在存储里。两条 lane 都提了。",
+      "body": "没修：当前没有任何已知的线上 dm 数据（线上从未 seed 过），而做迁移需要一条只跑一次的升级路径，为一个假想中的行不值得。\n\n如果将来发现真有这样的数据，做法是升级时改名而不是静默隐藏。",
+      "created": "2026-09-01T03:59:31Z",
+      "updated": "2026-09-01T03:59:31Z",
+      "history": [
+        {
+          "ts": "2026-09-01T03:59:31Z",
+          "author": "claude-code",
+          "change": "created · open · P3"
         }
       ]
     }

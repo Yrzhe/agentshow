@@ -52,23 +52,6 @@ CREATE TABLE IF NOT EXISTS activity (
 );
 CREATE INDEX IF NOT EXISTS activity_by_time ON activity (id DESC);
 
--- 提及链的跳数。
---
--- 存在服务端，不存在消息正文里。正文是发起方完全可控的，把控制状态放进去
--- 已经出过两次洞：agent 复述通知就把旧深度带过去（环拦不住），
--- 人在聊天框打出那句话就能伪造深度（合法提及被拦）。
---
--- 每投递成功一条提及就记一行。下一跳的深度 = 「谁最近叫醒过我」那一行的深度 + 1，
--- 查不到就是 0（人发起的链条起点）。窗口之外的旧记录不算 —— 一个小时前被 @ 过
--- 不该让现在这次正常对话背上深度。
-CREATE TABLE IF NOT EXISTS mention_chain (
-  to_agent_id TEXT NOT NULL,
-  depth       INTEGER NOT NULL,
-  at          INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS mention_chain_by_target
-  ON mention_chain (to_agent_id, at DESC);
-
 CREATE TABLE IF NOT EXISTS session_index (
   agent_id   TEXT PRIMARY KEY,
   title      TEXT NOT NULL DEFAULT '',

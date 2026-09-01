@@ -17,14 +17,6 @@ import { agentKey, scoped } from "./agent-key";
  */
 export const MAX_MENTION_DEPTH = 3;
 
-/**
- * 往前追溯多久算同一条链。
- *
- * 一个小时前被 @ 过，不该让现在这次正常对话背上深度。而一个真的环会在
- * 几分钟里烧完全部跳数，所以窗口取得比它宽、比「另一次独立对话」窄。
- */
-const CHAIN_WINDOW_MS = 15 * 60_000;
-
 export type MentionInput = {
   /** Access 验过的所有者邮箱。所有 DO 实例名都带它做前缀。 */
   owner: string;
@@ -37,6 +29,14 @@ export type MentionInput = {
   toAgentName: string;
   path: string;
   message: string;
+  /**
+   * 这一轮所处的提及深度。人发起的是 0。
+   *
+   * **由服务端给，不由链条上的任何一方声称。** agent 那条路上，它取自
+   * 正在执行的 submission 的 metadata（见 AgentDO.#currentDepth）；
+   * 人那条路上，人不是任何提及的目标，所以恒为 0。
+   */
+  depth: number;
   /**
    * 这次提及动作的 id，用来做重投幂等。
    *
@@ -54,26 +54,25 @@ export type MentionResult =
   | { ok: false; reason: "duplicate"; toAgentId: string };
 
 /**
- * 深度由服务端从提及链算出来，**不由调用方声称、也不从消息正文里读**。
+ * 深度这件事写到第四版了，前三版分别栽在：
  *
- * 早先两版都栽在这上面：第一版把深度存在 AgentDO 的一个键里，排队的两条提及
- * 互相覆盖；第二版把它写进消息正文，结果 agent 复述一遍通知就把旧深度带过去，
- * 人在聊天框打出那句话还能伪造。正文和跨轮的单值键都是**别人能写的地方**。
+ * 1. AgentDO 的跨轮单值键 —— 排队的两条提及互相覆盖。
+ * 2. 消息正文里的一行标记 —— agent 复述通知能夹带，人手打能伪造。
+ * 3. ProjectDO 的时间窗账本 —— 窗口替代不了链条身份：15 分钟内的另一条
+ *    独立对话会继承旧链的深度被误拦，而排队超过窗口的真链又会被归零放行。
  *
- * 现在：每投递成功一条就在 ProjectDO 记一跳；下一跳的深度 = 「谁最近叫醒过我」
- * 那一行的深度 + 1，查不到就是 0。这是服务端自己的账，链条上任何一方都改不动。
+ * 现在深度绑在**正在执行的那条 submission** 上（它的 metadata 由服务端写入）。
+ * submission 就是「这一轮」本身，前三版都是它的近似。
  */
 export async function deliverMention(
   env: Env,
   input: MentionInput
 ): Promise<MentionResult> {
+  if (input.depth > MAX_MENTION_DEPTH) return { ok: false, reason: "max_depth" };
+
   const project = env.ProjectDO.get(
     env.ProjectDO.idFromName(scoped(input.owner, input.projectId))
   );
-
-  const prior = await project.lastMentionDepth(input.fromId, CHAIN_WINDOW_MS);
-  const depth = prior === null ? 0 : prior + 1;
-  if (depth > MAX_MENTION_DEPTH) return { ok: false, reason: "max_depth" };
 
   // 只解析 agent。人类没有 AgentDO，投递过去就是投进虚空 ——
   // 而且不会报错，表现为「agent 说我 @ 了它，然后什么都没发生」。
@@ -92,19 +91,19 @@ export async function deliverMention(
     fromName: fromName ?? input.fromId,
     path: input.path,
     message: input.message,
-    depth,
+    depth: input.depth,
     mentionId: input.mentionId ?? crypto.randomUUID()
   });
 
   // 没被接受就是重投，目标没有新一轮 —— 这时候记活动会让界面上出现
   // 一条「A 提及了 B」而 B 从没醒过，正是这套东西最该避免的那种谎。
-  // 跳数也不记：那一跳早就记过了，再记一次会把链条算长。
   if (!accepted) return { ok: false, reason: "duplicate", toAgentId };
 
-  await Promise.all([
-    project.recordMentionHop({ toAgentId, depth }),
-    project.recordMention({ fromId: input.fromId, toAgentId, path: input.path })
-  ]);
+  await project.recordMention({
+    fromId: input.fromId,
+    toAgentId,
+    path: input.path
+  });
 
-  return { ok: true, toAgentId, depth };
+  return { ok: true, toAgentId, depth: input.depth };
 }

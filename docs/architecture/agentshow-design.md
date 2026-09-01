@@ -167,12 +167,17 @@ ProjectDO.writeFile({ path, content, baseVersion, authorId })
 ### 4.2 @提及 — 投递与唤醒
 
 ```
-Agent A 调 mention(agentName, path, message)
-  → ProjectDO 在 members 里解析 agentName → agentId
-  → ProjectDO 记一条 activity
-  → ProjectDO 调 AgentDO(agentId).notify({ projectId, path, message, fromAgentId })
-  → AgentDO 由 (agentId, projectId) 派生 sessionId，取出或新建那条 session
-  → 把提及作为一条消息投进去，触发一轮推理
+Agent A 调 mentionAgent(agentName, path, message)
+  → deliverMention 先看这一轮的深度（来自正在跑的那条 submission 的 metadata），
+    超过上限直接返回 max_depth，不往下走
+  → ProjectDO 在 members 里解析 agentName → agentId（只解析 agent，人解析不出来）
+  → AgentDO(owner~agentId:projectId).notifyMention({ path, message, depth, mentionId })
+    把提及作为一条持久化 submission 投进去，metadata 带上 depth
+  → **只有 submission 被接受（accepted）之后**，ProjectDO 才记那条 activity
+    —— 记在前面的话，被拒和重投的提及也会出现在活动流里，
+    界面上就成了「A 提及了 B」而 B 从没醒过
+  → 目标那一轮开始执行时，beforeTurn 从自己正在跑的 submission 读回 depth，
+    它再 @ 别人就是 depth + 1
 ```
 
 投递是异步的，不要求目标 agent 在线 —— DO 睡着也不丢，醒来处理。这是不做群聊换来的：群聊要求所有 agent 常驻，@提及只在被点名时唤醒一个。
@@ -230,7 +235,7 @@ Think 已经给了八个作用于 agent **私有盘**的工具。下面六个是
 | @提及的 agent 不是本 project 成员 | 工具返回明确失败，agent 在对话里说明。不静默丢弃 |
 | 目标 agent 推理失败 | 在它那条 session 里留错误，activity 记一条「未能完成」。提及方不阻塞 |
 | 模型调用超时 | Think 的断流恢复接管；session 状态保持 `in_progress` |
-| 两个 agent 互相 @ | 每条 session 记提及深度，超过 3 跳停止并在 activity 里标出 |
+| 两个 agent 互相 @ | 深度绑在**正在执行的那条 submission** 上，由服务端写入 metadata；超过 3 跳停止。链条上任何一方都改不动它 —— 早先把它放在跨轮的单值键、消息正文、以及按时间窗聚合的账本上，三种都被复审打回 |
 
 最后一条是必须有的。不做群聊消除了广播风暴，但没有消除环 —— A @ B、B @ A 是一个会一直烧钱的循环，且在演示里出现的概率不低。
 

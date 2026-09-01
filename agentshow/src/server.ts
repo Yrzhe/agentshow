@@ -142,9 +142,39 @@ export class AgentDO extends Think<Env> {
    *
    * DM 没有 project，就只有私有盘，没有公共区工具。
    */
+  /**
+   * 这一轮所处的提及深度。
+   *
+   * 取自**正在执行的那条 submission 的 metadata** —— 服务端在 notifyMention 里
+   * 写进去的，链条上任何一方都碰不到。普通聊天不走 submission ledger，
+   * 查不到就是 0，也就是「这是一条新链的起点」。
+   *
+   * 这是第四版。前三版分别把深度放在：AgentDO 的跨轮单值键（排队的两条互相
+   * 覆盖）、消息正文（能被夹带和伪造）、ProjectDO 的时间窗账本（窗口替代不了
+   * 链条身份，会误拦合法新链、也会放过停留过久的真链）。
+   * 只有 submission 是「这一轮」本身，别的都是近似。
+   */
+  async #currentDepth(): Promise<number> {
+    try {
+      const running = await this.listSubmissions({ status: "running" });
+      const depths = running
+        .map((s) => s.metadata?.depth)
+        .filter((d): d is number => typeof d === "number" && d >= 0);
+      // FIFO 保证同时只有一条在跑；真出现多条时往上取，保守方向。
+      return depths.length ? Math.max(...depths) : 0;
+    } catch (e) {
+      // 查不到就当新链起点。宁可让一条链多走一跳，也不要因为读不到状态
+      // 就把所有提及都拦死。
+      console.error("读取当前 submission 深度失败，按第 0 跳处理：", e);
+      return 0;
+    }
+  }
+
   async beforeTurn(ctx: TurnContext): Promise<TurnConfig | void> {
     const { owner, agentId, projectId } = this.key;
     if (!projectId) return;
+
+    const depth = await this.#currentDepth();
 
     const project = this.env.ProjectDO.get(
       this.env.ProjectDO.idFromName(scoped(owner, projectId))
@@ -177,9 +207,10 @@ export class AgentDO extends Think<Env> {
             fromId: agentId,
             toAgentName: input.toAgentName,
             path: input.path,
-            message: input.message
-            // 深度由 deliverMention 从 ProjectDO 的提及链算出来 ——
-            // 这一轮无从声称自己在第几跳，也就伪造不了。
+            message: input.message,
+            // 我被 @ 到第 n 跳，我再 @ 别人就是第 n+1 跳。
+            // n 取自正在跑的那条 submission，不是从历史里猜的。
+            depth: depth + 1
           })
       })
     };

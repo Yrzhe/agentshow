@@ -114,9 +114,11 @@ export function projectTools({
         "先把你的产出写进公共区，再 @ 人来看，不要 @ 完了才写。\n" +
         "message 里说清你要它做什么、看哪里。别的 agent 看不到你和用户的对话，" +
         "它只有这条消息和那个文件。\n" +
-        "如果返回 unknown_agent，说明这个名字不在本 project 的成员里 —— " +
-        "先用 listProjectFiles 之外的方式确认名字，或者直接告诉用户没找到这个人，" +
-        "不要假装已经通知到了。",
+        "如果返回 unknown_agent，说明这个名字不在本 project 的成员里。" +
+        "直接告诉用户没找到这个人，不要假装已经通知到了，也不要猜别的名字反复试。\n" +
+        "如果返回 max_depth，说明这条提及链已经太长，服务端把它截断了。" +
+        "**这是终止信号**：不要改写措辞重试、不要换一个目标、不要在这一轮里再调这个工具。" +
+        "把手上的活做完，然后告诉用户这条链已经到头、需要他来接下一步。",
       inputSchema: z.object({
         toAgentName: z.string().describe("要 @ 的 agent 名字，例如 Verdigris"),
         path: z.string().describe("讨论围绕哪个文件"),
