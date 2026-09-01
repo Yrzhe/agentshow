@@ -2,7 +2,7 @@
   "project": "agentshow",
   "prefix": "A",
   "next_num": 43,
-  "updated": "2026-09-01T10:39:18Z",
+  "updated": "2026-09-01T11:03:16Z",
   "issues": [
     {
       "id": "A-1",
@@ -154,13 +154,13 @@
       "num": 6,
       "title": "CI 不跑测试：101 条测试从不在流水线执行，唯一门禁是 tsc",
       "severity": "P1",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
-      "evidence": ".github/workflows/deploy.yml 全文 grep vitest/npm test 命中数为 0；步骤只有 npm ci → wrangler types → tsc --noEmit → vite build → wrangler deploy。",
+      "evidence": "CI run 33500203086 全绿，测试步骤输出「Test Files 17 passed / Tests 166 passed」并打印「17 个测试文件全部执行，与磁盘上的一致」。这条门禁上线过程中自己抓到两个真问题：ai 绑定逼出的远程代理会话缺凭证（只跑起 6/17），以及 submitMessages 在测试里真打推理导致的 9 个 unhandled error。",
       "body": "push 到 main 就部署，而测试只在人手动本地跑。叠加 NOTES 里已记的那条：vite dev 开着时 vitest 会静默只跑 4/13 个文件且退出 0——唯一的测试门禁本身有一个不报错的失效模式。\n\n修的方向：CI 加 npm test 步骤，并断言文件数（当前 13）而不只看退出码。",
       "created": "2026-08-31T11:47:30Z",
-      "updated": "2026-09-01T10:38:56Z",
+      "updated": "2026-09-01T11:03:16Z",
       "history": [
         {
           "ts": "2026-08-31T11:47:30Z",
@@ -171,6 +171,11 @@
           "ts": "2026-09-01T10:38:56Z",
           "author": "claude-code",
           "change": "status: open → shipped"
+        },
+        {
+          "ts": "2026-09-01T11:03:16Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed; evidence: .github/workflows/deploy.yml 全文 grep vitest/npm test 命中数为 0；步骤只有 npm ci → wrangler types → tsc --noEmit → vite build → wrangler deploy。 → CI run 33500203086 全绿，测试步骤输出「Test Files 17 passed / Tests 166 passed」并打印「17 个测试文件全部执行，与磁盘上的一致」。这条门禁上线过程中自己抓到两个真问题：ai 绑定逼出的远程代理会话缺凭证（只跑起 6/17），以及 submitMessages 在测试里真打推理导致的 9 个 unhandled error。"
         }
       ]
     },
