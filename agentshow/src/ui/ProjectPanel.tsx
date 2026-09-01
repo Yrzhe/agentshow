@@ -77,6 +77,7 @@ export function ProjectPanel({
         <button
           type="button"
           onClick={() => go("概览")}
+          aria-label="回到概览"
           className="size-5.5 shrink-0 flex items-center justify-center rounded-[5px] bg-[#F0F0F0]"
         >
           <HomeIcon />

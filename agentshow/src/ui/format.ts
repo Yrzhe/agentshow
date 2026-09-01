@@ -219,6 +219,68 @@ export function memberOf(
   return members.find((m) => m.memberId === id);
 }
 
+/**
+ * 工具名在界面上说人话。
+ *
+ * 模型调工具这件事本身值得画出来 —— 演示里最有说服力的一段就是
+ * 「写入被拒 → 读新内容 → 重做」。但 `writeProjectFile` 是内部标识，
+ * 挂在一个同事的名字底下等于让它当着用户的面报函数名。
+ *
+ * 前五个是这个 project 注入的工具，后八个是 Think 内置的、作用于
+ * agent 自己私有盘的那一套（见 src/agent-tools.ts 的说明）。
+ */
+const TOOL_LABEL: Record<string, string> = {
+  listProjectFiles: "看了看公共区有哪些文件",
+  readProjectFile: "读了公共区的文件",
+  writeProjectFile: "写入公共区",
+  commentOnProjectFile: "留了条评论",
+  mentionAgent: "叫了另一个 agent",
+
+  read: "读了私有盘的文件",
+  write: "写了私有盘的文件",
+  edit: "改了私有盘的文件",
+  list: "列了私有盘的文件",
+  find: "在私有盘里找文件",
+  grep: "在私有盘里搜内容",
+  delete: "删了私有盘的文件",
+  bash: "跑了条命令"
+};
+
+/** 认不出的工具退回原名 —— 编个说法比露出标识更糟。 */
+export function toolLabel(name: string): string {
+  return TOOL_LABEL[name] ?? name;
+}
+
+export type InlineSpan = { kind: "text" | "code" | "strong"; value: string };
+
+/**
+ * 最小的行内 markdown：只认反引号和 `**`。
+ *
+ * 模型收尾时会写「已写入公共区 `pricing-table.tsx`」，原样渲染就是把
+ * 反引号亮给用户看。不引 markdown 库：这里要的只是这两种记号，
+ * 而一个完整的解析器还会带来一个需要防的 HTML 注入面。
+ */
+export function parseInline(text: string): InlineSpan[] {
+  const spans: InlineSpan[] = [];
+  const re = /`([^`\n]+)`|\*\*([^*\n]+)\*\*/g;
+  let last = 0;
+
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (m.index > last) {
+      spans.push({ kind: "text", value: text.slice(last, m.index) });
+    }
+    spans.push(
+      m[1] !== undefined
+        ? { kind: "code", value: m[1] }
+        : { kind: "strong", value: m[2] }
+    );
+    last = m.index + m[0].length;
+  }
+
+  if (last < text.length) spans.push({ kind: "text", value: text.slice(last) });
+  return spans;
+}
+
 /** 活动流顶部的筛选。分类按「看的人在找什么」分，不按 verb 一一对应。 */
 export const ACTIVITY_FILTERS = [
   { key: "all", label: "全部", verbs: null },

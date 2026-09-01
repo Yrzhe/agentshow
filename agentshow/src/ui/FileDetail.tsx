@@ -359,6 +359,7 @@ function Composer({
             type="button"
             onClick={submit}
             disabled={!text.trim() || busy}
+            aria-label="发送"
             className="size-6 shrink-0 flex items-center justify-center rounded-xl bg-[#121313] disabled:opacity-30"
           >
             <SendIcon />

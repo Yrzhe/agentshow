@@ -147,6 +147,7 @@ export function SessionList({
               type="button"
               onClick={send}
               disabled={!chosen || !draft.trim()}
+              aria-label="发起会话"
               className="size-6 shrink-0 flex items-center justify-center rounded-xl bg-[#121313] disabled:opacity-30"
             >
               <SendIcon />

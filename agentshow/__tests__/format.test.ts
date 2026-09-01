@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PROJECT_TOOL_NAMES } from "../src/agent-tools";
 import type { ActivityRow, MemberView } from "../src/api-types";
 import {
   activityLine,
@@ -6,7 +7,9 @@ import {
   dayLabel,
   fileKind,
   parseAnchor,
-  relativeTime
+  parseInline,
+  relativeTime,
+  toolLabel
 } from "../src/ui/format";
 
 const MEMBERS: MemberView[] = [
@@ -182,5 +185,59 @@ describe("activityLine", () => {
     );
     expect(line.text).toBe("demo 把 Verdigris 加进了这个项目");
     expect(line.badge.label).toBe("成员");
+  });
+});
+
+describe("工具名说人话", () => {
+  it("project 注入的五个工具都有中文说法", () => {
+    for (const name of PROJECT_TOOL_NAMES) {
+      expect(toolLabel(name)).not.toBe(name);
+    }
+  });
+
+  it("Think 内置的八个也有", () => {
+    for (const name of ["read", "write", "edit", "list", "find", "grep", "delete", "bash"]) {
+      expect(toolLabel(name)).not.toBe(name);
+    }
+  });
+
+  // 编个说法比露出标识更糟 —— 用户会照着一个不存在的动作去理解。
+  it("认不出的工具退回原名", () => {
+    expect(toolLabel("someFutureTool")).toBe("someFutureTool");
+  });
+});
+
+describe("行内 markdown", () => {
+  it("没有记号时原样一段", () => {
+    expect(parseInline("写完了")).toEqual([{ kind: "text", value: "写完了" }]);
+  });
+
+  it("反引号变成代码，反引号本身不出现在任何一段里", () => {
+    const spans = parseInline("已写入公共区 `pricing-table.tsx`，version 1");
+    expect(spans).toEqual([
+      { kind: "text", value: "已写入公共区 " },
+      { kind: "code", value: "pricing-table.tsx" },
+      { kind: "text", value: "，version 1" }
+    ]);
+    expect(spans.some((s) => s.value.includes("`"))).toBe(false);
+  });
+
+  it("** 变成加粗", () => {
+    expect(parseInline("这是 **终止信号**")).toEqual([
+      { kind: "text", value: "这是 " },
+      { kind: "strong", value: "终止信号" }
+    ]);
+  });
+
+  // 落单的记号是正文的一部分，不能被吃掉。
+  it("不成对的记号原样留着", () => {
+    expect(parseInline("a ` b ** c")).toEqual([
+      { kind: "text", value: "a ` b ** c" }
+    ]);
+  });
+
+  // 跨行配对会把两段无关的话粘成一块代码。
+  it("记号不跨行配对", () => {
+    expect(parseInline("`a\nb`")).toEqual([{ kind: "text", value: "`a\nb`" }]);
   });
 });

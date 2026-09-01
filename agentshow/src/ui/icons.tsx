@@ -9,6 +9,11 @@ import type { FileKind } from "./format";
 
 type IconProps = { size?: number; color?: string; width?: number };
 
+/**
+ * 一律 aria-hidden。这些形状没有一个是独立的信息 —— 它们要么挨着文字，
+ * 要么装在按钮里，而按钮的名字由 aria-label 给。不挡住的话，读屏软件
+ * 会在每个标签旁边多念一个「图形」。
+ */
 function svg(size: number, children: React.ReactNode) {
   return (
     <svg
@@ -16,6 +21,8 @@ function svg(size: number, children: React.ReactNode) {
       height={size}
       viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      focusable="false"
       className="shrink-0"
     >
       {children}
@@ -198,6 +205,8 @@ export function Logo({ size = 23 }: { size?: number }) {
       viewBox="0 0 144 144"
       width={size}
       height={size}
+      aria-hidden="true"
+      focusable="false"
       className="shrink-0"
     >
       <path

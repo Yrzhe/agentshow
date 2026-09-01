@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/think/react";
 import { agentKey } from "../agent-key";
 import type { MemberView } from "../api-types";
+import { parseInline, toolLabel } from "./format";
 import { Avatar } from "./Avatar";
 import { ArrowLeftIcon, SendIcon } from "./icons";
 
@@ -38,7 +39,15 @@ export function Chat({
     agent: "AgentDO",
     name: agentKey(owner, agentId, projectId)
   });
-  const { messages, sendMessage, status } = useAgentChat({ agent });
+  const {
+    messages,
+    sendMessage,
+    status,
+    error,
+    clearError,
+    regenerate,
+    connectionError
+  } = useAgentChat({ agent });
 
   const sent = useRef(false);
   useEffect(() => {
@@ -48,6 +57,21 @@ export function Chat({
     }
   }, [firstPrompt, sendMessage]);
 
+  /**
+   * 发之前先把上一轮的错误清掉，否则横幅会一直挂在那儿。
+   *
+   * 断线时 socket 自己会一直重连（partysocket 的默认值就是无限重试、
+   * 3–10 秒退避，见 partysocket/dist/ws.js 的 DEFAULT），所以这里不做重连；
+   * 连接没恢复之前输入框是锁的，话不会掉进虚空。
+   */
+  const send = useCallback(
+    async (text: string) => {
+      clearError();
+      await sendMessage({ text });
+    },
+    [clearError, sendMessage]
+  );
+
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -56,7 +80,12 @@ export function Chat({
   return (
     <div className="w-130 shrink-0 flex flex-col bg-[#FCFCFC] border-l border-[#0000000F] h-full">
       <div className="h-10 shrink-0 flex items-center px-4.5 gap-2.25">
-        <button type="button" onClick={onBack} className="shrink-0">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="返回会话列表"
+          className="shrink-0"
+        >
           <ArrowLeftIcon />
         </button>
         <Avatar member={profile} id={agentId} size={20} />
@@ -91,7 +120,48 @@ export function Chat({
         <div ref={bottom} />
       </div>
 
-      <Composer onSend={(text) => sendMessage({ text })} />
+      {connectionError ? (
+        <Banner text="和这条会话的连接断了，正在重连。这期间发不出去。" />
+      ) : error ? (
+        <Banner
+          text={`${profile?.name ?? agentId} 这一轮没能回复。`}
+          action={{ label: "重试", onClick: () => regenerate() }}
+        />
+      ) : null}
+
+      <Composer onSend={send} blocked={Boolean(connectionError)} />
+    </div>
+  );
+}
+
+/**
+ * 失败要说出来。
+ *
+ * 不说的话，断线和「它还在想」在界面上长得一模一样 —— 用户会继续打字，
+ * 而每一句都掉进虚空。
+ */
+function Banner({
+  text,
+  action
+}: {
+  text: string;
+  action?: { label: string; onClick: () => void };
+}) {
+  return (
+    <div
+      role="status"
+      className="shrink-0 mx-3.5 mb-1 px-2.5 py-1.5 rounded-lg bg-[#FBF0EC] flex items-center gap-2"
+    >
+      <span className="grow text-[#9A5B44] text-[11px]/4">{text}</span>
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="shrink-0 text-[#9A5B44] text-[11px]/4 font-semibold underline underline-offset-2"
+        >
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }
@@ -101,29 +171,27 @@ export function Chat({
  *
  * 演示里最有说服力的一段是「它写入被拒、读了新内容、重做」——
  * 只渲染文本的话，这一段在界面上完全看不见，用户只会看到它沉默了一会儿。
+ *
+ * 画出来不等于原样倒出来。这一屏赌的是「agent 是同事」，而同事不会
+ * 当着你的面用英文自言自语、再报一遍自己要调哪个函数。所以思维链默认
+ * 收起来、工具名过中文表、正文认行内 markdown。
  */
 function Part({ part }: { part: { type: string; text?: string } }) {
   if (part.type === "text") {
-    return (
-      <div className="text-[#121313] text-xs/5 whitespace-pre-wrap">
-        {part.text}
-      </div>
-    );
+    return <Prose text={part.text ?? ""} />;
   }
 
   if (part.type === "reasoning") {
-    return (
-      <div className="text-[#8A8A8A] text-[11px]/4 whitespace-pre-wrap">
-        {part.text}
-      </div>
-    );
+    return <Reasoning text={part.text ?? ""} />;
   }
 
   if (part.type.startsWith("tool-")) {
     return (
       <div className="flex items-center gap-1.5 text-[#6E6E6E] text-[10px]/3">
-        <span className="text-[#B4B4B4]">→</span>
-        <span className="font-mono">{part.type.slice("tool-".length)}</span>
+        <span className="text-[#B4B4B4]" aria-hidden="true">
+          →
+        </span>
+        <span>{toolLabel(part.type.slice("tool-".length))}</span>
       </div>
     );
   }
@@ -131,23 +199,96 @@ function Part({ part }: { part: { type: string; text?: string } }) {
   return null;
 }
 
-function Composer({ onSend }: { onSend: (text: string) => void }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
+/** 正文。段落照旧靠换行，行内认反引号和 `**`。 */
+function Prose({ text }: { text: string }) {
+  return (
+    <div className="text-[#121313] text-xs/5 whitespace-pre-wrap">
+      {parseInline(text).map((span, i) => {
+        if (span.kind === "code") {
+          return (
+            <code
+              key={i}
+              className="px-1 py-px rounded bg-[#F1F1F1] text-[#3A3A3A] text-[11px]"
+            >
+              {span.value}
+            </code>
+          );
+        }
+        if (span.kind === "strong") {
+          return (
+            <strong key={i} className="font-semibold">
+              {span.value}
+            </strong>
+          );
+        }
+        return <span key={i}>{span.value}</span>;
+      })}
+    </div>
+  );
+}
+
+/**
+ * 思维链默认收起。
+ *
+ * 它对调试有用、对看演示的人没用 —— 一段英文自言自语挂在中文名字底下，
+ * 读起来就是这个「同事」说的话。想看的人点开，抬头用中文说清那是什么。
+ */
+function Reasoning({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="self-start text-[#A5A5A5] text-[10px]/3"
+      >
+        {open ? "收起思考过程" : "看它是怎么想的"}
+      </button>
+      {open && (
+        <div className="text-[#8A8A8A] text-[11px]/4 whitespace-pre-wrap border-l-2 border-[#ECECEC] pl-2">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 输入框是受控的，为的是**发送失败时字还在**。
+ *
+ * 之前是发完无条件清空：断线的时候用户打的那句被清掉、消息没发出去、
+ * 屏幕上什么痕迹都没有 —— 三件事叠在一起，看上去就像他从没打过字。
+ */
+function Composer({
+  onSend,
+  blocked
+}: {
+  onSend: (text: string) => Promise<void>;
+  blocked: boolean;
+}) {
+  const [draft, setDraft] = useState("");
+  const text = draft.trim();
+  const canSend = text.length > 0 && !blocked;
 
   function send() {
-    const text = ref.current?.value.trim();
-    if (!text) return;
-    onSend(text);
-    if (ref.current) ref.current.value = "";
+    if (!canSend) return;
+    // 立刻清空：sendMessage 要等整轮回复流完才 resolve，等它就等于
+    // 在 agent 说话的整段时间里把输入框锁着。
+    setDraft("");
+    // 真被拒了就把字还回去 —— 但只在用户还没开始打下一句的时候。
+    onSend(text).catch(() => setDraft((d) => (d.length > 0 ? d : text)));
   }
 
   return (
     <div className="shrink-0 pb-3.5 px-3.5 pt-2">
       <div className="flex flex-col p-3 rounded-[10px] bg-white border border-[#E9E9E9]">
         <textarea
-          ref={ref}
           rows={2}
-          placeholder="继续说"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={blocked ? "等连接恢复" : "继续说"}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -160,7 +301,9 @@ function Composer({ onSend }: { onSend: (text: string) => void }) {
           <button
             type="button"
             onClick={send}
-            className="size-6 shrink-0 flex items-center justify-center rounded-xl bg-[#121313]"
+            disabled={!canSend}
+            aria-label="发送"
+            className="size-6 shrink-0 flex items-center justify-center rounded-xl bg-[#121313] disabled:bg-[#C8C8C8]"
           >
             <SendIcon />
           </button>
