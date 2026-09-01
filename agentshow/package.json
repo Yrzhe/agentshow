@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "deploy": "wrangler deploy",
+    "deploy": "vite build && wrangler deploy --config dist/agentshow/wrangler.json",
     "types": "wrangler types",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "wrangler types && tsc --noEmit",
+    "test": "node scripts/run-tests.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.87",

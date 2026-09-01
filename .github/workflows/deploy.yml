@@ -30,13 +30,15 @@ jobs:
 
       - run: npm ci
 
-      # worker-configuration.d.ts 不进仓库，每次构建现生成。
-      - name: 生成 Env 类型
-        run: npx wrangler types
-
-      # 类型不过就不部署 —— 部署前的唯一一道闸。
+      # typecheck 自己先跑 wrangler types —— worker-configuration.d.ts 不进仓库，
+      # 干净检出里没有它，Env 会缺掉所有绑定。
       - name: 类型检查
-        run: npx tsc --noEmit
+        run: npm run typecheck
+
+      # npm test 是包着核对的 vitest：它会断言磁盘上每个测试文件都真的跑了。
+      # 只看退出码不够 —— 少跑一半文件时 vitest 也是 0。
+      - name: 测试
+        run: npm test
 
       - name: 构建
         run: npx vite build

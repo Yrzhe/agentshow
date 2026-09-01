@@ -1,8 +1,8 @@
 {
   "project": "agentshow",
   "prefix": "A",
-  "next_num": 42,
-  "updated": "2026-09-01T08:13:10Z",
+  "next_num": 43,
+  "updated": "2026-09-01T09:34:03Z",
   "issues": [
     {
       "id": "A-1",
@@ -936,6 +936,26 @@
           "ts": "2026-09-01T03:59:31Z",
           "author": "claude-code",
           "change": "created · open · P3"
+        }
+      ]
+    },
+    {
+      "id": "A-42",
+      "num": 42,
+      "title": "npm run dev 起在 5173，seed 默认打 5273，无参数灌本地数据打空",
+      "severity": "P2",
+      "status": "in-progress",
+      "owner": "",
+      "batch": "",
+      "evidence": "package.json 的 dev 是裸 vite dev（默认 5173），vite.config.ts 原先没有 server.port；scripts/seed.ts 的 --base 默认值是 http://localhost:5273。",
+      "body": "README 写的本地流程 npm run dev 然后 node scripts/seed.ts 两条命令端口对不上，第二条会连不上。seed.ts 的注释里写着 vite dev --port 5273，说明这个端口一直靠人手动传。",
+      "created": "2026-09-01T09:34:03Z",
+      "updated": "2026-09-01T09:34:03Z",
+      "history": [
+        {
+          "ts": "2026-09-01T09:34:03Z",
+          "author": "claude-code",
+          "change": "created · in-progress · P2"
         }
       ]
     }

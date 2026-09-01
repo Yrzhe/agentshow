@@ -2,19 +2,22 @@
  * 建一个 project 和两个 agent，各自带身份卡和身份文档。
  *
  *   node scripts/seed.ts                          # 打本地 dev（vite dev --port 5273）
- *   node scripts/seed.ts --base https://agentshow.io --cookie "CF_Authorization=…"
+ *   AGENTSHOW_COOKIE="CF_Authorization=…" node scripts/seed.ts --base https://agentshow.io
  *
  * 线上带 cookie：Access 的 service token 没有 email，而 verifyAccess 明确拒绝
  * 不带 email 的 token —— 这个产品的人类成员必须有邮箱。所以给线上灌数据的
  * 唯一办法是用一个真人登录后的凭证：浏览器里打开 agentshow.io，从
- * DevTools 拷出 CF_Authorization 这个 cookie，原样传进来。Access 会验它，
+ * DevTools 拷出 CF_Authorization 这个 cookie 交给这个脚本。Access 会验它，
  * 然后照常注入 cf-access-jwt-assertion 头。
+ *
+ * 凭证只从环境变量或 stdin 进来，没有 --cookie 参数：命令行参数在脚本存活
+ * 期间明文留在 argv 里，同机任何进程 `ps -o command` 就能读到。
  *
  * 幂等：project 和身份卡都是 upsert，重复跑只会覆盖成同样的内容。
  * 但**文件、评论、活动不会被清掉** —— 要一块干净的场地就换一个 --project。
  */
 
-type Args = { base: string; cookie: string; project: string; name: string };
+type Args = { base: string; project: string; name: string };
 
 function parseArgs(argv: string[]): Args {
   const get = (flag: string, fallback: string) => {
@@ -23,10 +26,26 @@ function parseArgs(argv: string[]): Args {
   };
   return {
     base: get("--base", "http://localhost:5273"),
-    cookie: get("--cookie", ""),
     project: get("--project", "pricing"),
     name: get("--name", "定价页改版")
   };
+}
+
+/**
+ * 本地 dev 的 Access 是旁路的，不需要凭证；打线上则必须有。
+ * 环境变量优先，没有就从 stdin 读一行 —— 管道和交互粘贴都走这条路。
+ */
+async function readCookie(base: string): Promise<string> {
+  const fromEnv = process.env.AGENTSHOW_COOKIE?.trim();
+  if (fromEnv) return fromEnv;
+  if (new URL(base).hostname === "localhost") return "";
+
+  process.stderr.write("粘贴 CF_Authorization=… 然后回车：");
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  const line = Buffer.concat(chunks).toString("utf8").split("\n")[0].trim();
+  if (!line) throw new Error("没读到凭证：设 AGENTSHOW_COOKIE 或从 stdin 传入");
+  return line;
 }
 
 const AGENTS = [
@@ -107,10 +126,11 @@ const AGENTS = [
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const cookie = await readCookie(args.base);
   const headers: Record<string, string> = {
     "content-type": "application/json"
   };
-  if (args.cookie) headers.cookie = args.cookie;
+  if (cookie) headers.cookie = cookie;
 
   async function post(path: string, body: unknown) {
     const res = await fetch(`${args.base}${path}`, {
@@ -123,7 +143,7 @@ async function main() {
       // 重定向去登录页了。直接说出来，不要让它表现成一个费解的 JSON 错误。
       const hint =
         res.status === 302 || res.status === 403
-          ? "（多半是 --cookie 没带或已过期）"
+          ? "（多半是 AGENTSHOW_COOKIE 没设或已过期）"
           : "";
       throw new Error(`POST ${path} → ${res.status}${hint}\n${await res.text()}`);
     }
