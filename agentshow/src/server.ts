@@ -1,6 +1,7 @@
 import { Think } from "@cloudflare/think";
 import type {
   Session,
+  ThinkModel,
   ThinkSubmissionInspection,
   TurnConfig,
   TurnContext
@@ -43,9 +44,12 @@ export class AgentDO extends Think<Env> {
   // 默认开启的 bash 工具会快照上千个工作区文件，对这个产品是纯负担。
   workspaceBash = false;
 
-  getModel() {
+  // 返回类型写成 ThinkModel 而不是让它收敛成这个字符串字面量：
+  // 换外部 API 只需要改这一行，而收敛之后连「返回一个构造好的模型」
+  // 都不再是合法的改法。
+  getModel(): ThinkModel {
     // 字符串走 Think 内置的 workers-ai-provider，读 wrangler.jsonc 里的 AI 绑定。
-    // 换外部 API 只需要改这一行 —— 刻意不做 provider 抽象层。
+    // 刻意不做 provider 抽象层。
     return "@cf/moonshotai/kimi-k2.7-code";
   }
 

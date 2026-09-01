@@ -861,3 +861,30 @@ CLOUDFLARE_API_TOKEN`。
 （`scripts/run-tests.mjs`）就是为这种形状加的。
 
 ---
+
+## [2026-09-01T10:59:29.802Z] · design-decision · claude-code
+**测试不打真模型：假模型放在测试入口，生产代码不为测试让路**
+
+`notifyMention` 走 `submitMessages`，而它会排一轮**真正的模型调用**。测试
+断言完早就返回了，那一轮还在后台跑。三条后果：
+
+1. CI 每跑一次都花真钱打 Workers AI；
+2. 结果不确定（CI 里报 `Network connection lost.`）；
+3. 那一轮失败时抛出的错误落在所有测试之外，vitest 记成 unhandled error 然后
+   退 1 —— 实测「17 个文件 166 条全过，Errors 9，退出码 1」。
+
+`SubmitMessagesOptions` 只有 `submissionId` / `idempotencyKey` / `metadata` /
+`channel`，没有「先别跑」的开关，所以拦不住那次 drain。
+
+**seam 放在测试入口，不放在生产代码里。** `vitest.config.ts` 的 workers
+project 把 `main` 指到 `__tests__/worker.ts`：它继承 `AgentDO` 只换掉
+`getModel()`（返回 `ai/test` 的 `MockLanguageModelV4`），其余导出原样透传。
+wrangler.jsonc 的 migration 绑的是类名，子类同名即可。
+
+生产代码只动了一处：`getModel()` 的返回类型标成 `ThinkModel` 而不是让它
+收敛成那个字符串字面量 —— 收敛之后连「返回一个构造好的模型」都不再是
+合法的改法，而注释里写的就是「换外部 API 只需要改这一行」。
+
+改完连跑三次，退出码 0，没有 Errors 行。
+
+---

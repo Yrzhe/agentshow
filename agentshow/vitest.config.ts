@@ -25,7 +25,9 @@ export default defineConfig({
       {
         plugins: [
           cloudflareTest({
-            main: "./src/server.ts",
+            // 不是 src/server.ts —— 那个入口会真的去打模型。
+            // __tests__/worker.ts 只换掉 getModel()，其余原样透传。
+            main: "./__tests__/worker.ts",
             wrangler: { configPath: "./wrangler.jsonc" }
           })
         ],
