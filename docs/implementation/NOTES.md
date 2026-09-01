@@ -837,3 +837,27 @@ spec 没要求 per-agent 工具 allowlist，所以本可以只改界面措辞。
 其中「管理」现在已经接到 `onSeeAll(成员)`，那条豁免记录已经过时。
 
 ---
+
+## [2026-09-01T10:45:59.804Z] · resolution · claude-code
+**CI 测试要 Cloudflare 凭证 —— ai 绑定逼出一条远程代理会话**
+
+测试步骤刚进 CI 就红了，红得有价值：**17 个测试文件里只跑起来 6 个**，
+另外 11 个（全部 workers project）拿到的是
+`Failed to start the remote proxy session … it's necessary to set a
+CLOUDFLARE_API_TOKEN`。
+
+原因：`wrangler.jsonc` 声明了 `ai` 绑定，而 AI 绑定只有远程资源
+（`wrangler dev` 每次都会警告这一点）。`vitest-pool-workers` 因此要起一条
+远程代理会话，没有 token 就起不来。本地一直能跑，只是因为 wrangler
+已经登录过 —— 又一次「在我机器上是绿的」。
+
+修法是把 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` 也给测试那一步。
+信任级别没有变宽：这个 workflow 只在 push 到 main 时触发，刻意不接
+`pull_request`，所以能跑到它的人本来就能跑到部署那一步。
+
+顺带一条读数：这次 vitest 自己退了 1，所以门禁本来也会红。但它打印的是
+`Test Files 6 passed (6) / Tests 81 passed (81) / Errors 11 errors` ——
+「6 passed」和「11 errors」并排，正是那种扫一眼像绿的形状。完整性核对
+（`scripts/run-tests.mjs`）就是为这种形状加的。
+
+---

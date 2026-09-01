@@ -37,8 +37,17 @@ jobs:
 
       # npm test 是包着核对的 vitest：它会断言磁盘上每个测试文件都真的跑了。
       # 只看退出码不够 —— 少跑一半文件时 vitest 也是 0。
+      #
+      # 要凭证是因为 wrangler.jsonc 声明了 ai 绑定：AI 绑定只有远程资源，
+      # vitest-pool-workers 于是要起一条远程代理会话，没有 token 就起不来，
+      # 11 个 workers 测试文件全部拿不到运行时。本地能跑只是因为 wrangler
+      # 已经登录过。这个 workflow 只在 push 到 main 时触发、不接 fork 的 PR，
+      # 所以这里的信任级别和下面部署那一步是同一个。
       - name: 测试
         run: npm test
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: 构建
         run: npx vite build
