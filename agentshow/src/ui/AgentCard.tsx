@@ -64,6 +64,17 @@ export function AgentCard({
             <span className="font-semibold text-[#2E7D68] text-[9px]/3 tracking-[0.06em]">
               Agent
             </span>
+            {/* 这一条不是形容词，是能力边界：只读的 agent 根本拿不到
+                写公共区的工具。写在名字旁边，是为了让「从不改代码」
+                这类身份文档里的话有个可以对照的硬事实。 */}
+            {card.readOnly && (
+              <span
+                title="拿不到写公共区的工具"
+                className="h-4.5 flex items-center px-1.5 rounded-sm bg-[#EDEDED] font-medium text-[#6E6E6E] text-[9px]/3"
+              >
+                只读
+              </span>
+            )}
           </div>
           {card.tagline && (
             <div className="mt-1 text-[#777777] text-[11px]/4">{card.tagline}</div>
