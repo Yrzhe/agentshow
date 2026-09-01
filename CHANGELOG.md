@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+
+- **agent 端点的归属闸**（`checkAgentRoute`）。此前 `routeAgentRequest` 之前
+  不做任何检查，而实例名是客户端给的 —— 任意登录者能连到别人的 session
+  并拿到那个 project 的读写工具。
+- **DO 实例名带所有者前缀**（`${owner}~${agentId}:${projectId}`，owner 取自
+  Access 验过的邮箱）。此前 `agentId` / `projectId` 是用户自起的短 slug 且全局
+  寻址，用别人的 id 建一次同名 project 就能读到对方的文件和 agent 身份文档。
+  分隔符用 `~` 不用 `/`：SDK 把实例名原样拼进 URL 路径不编码。
+
+### Fixed
+
+- **提及深度绑到正在执行的那条 submission**，由服务端写入 metadata。
+  此前依次放在 AgentDO 的跨轮单值键（排队的两条互相覆盖）、消息正文
+  （agent 复述能夹带、人手打能伪造）、以及按时间窗聚合的账本
+  （窗口不是链条身份，会误拦合法新链、放行停留过久的真链）。
+- **轮询失败不再接管界面**。此前任何一次 4 秒轮询抖动会把三栏永久换成一行
+  英文异常，且没有任何路径把它清回来。
+- **切 project 时迟到的响应不再画到新项目上** —— 此前用户会在 B 项目里
+  看到 A 的文件，点进去留的评论也落进 A。
+- **@提及的幂等**：动作 id 绑在 `{目标, 文件, 正文}` 的快照上。此前改文案
+  重发会被当旧动作、新文案静默丢掉；换目标重发则两个 agent 都被叫醒。
+- `dm` 是 DM 槽位的保留字，不能当项目 id —— 否则那个 project 的 session
+  会被解析成 DM，静默拿不到任何工具。
+- 展示用的会话索引写入改成 best-effort，不再把整轮推理拦在开始之前。
+
 ### Added
 
 - **`scripts/seed.ts`** —— 建 project 和三个 agent（写实现、复审、管文案），

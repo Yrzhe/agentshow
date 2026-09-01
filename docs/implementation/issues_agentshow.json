@@ -2,20 +2,20 @@
   "project": "agentshow",
   "prefix": "A",
   "next_num": 42,
-  "updated": "2026-09-01T03:59:31Z",
+  "updated": "2026-09-01T08:13:10Z",
   "issues": [
     {
       "id": "A-1",
       "num": 1,
       "title": "agent 路由零授权：任意登录者可直连别人的 session 并驱动其 project",
       "severity": "P0",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/server.ts:188-203 调 routeAgentRequest 前只有站点级 verifyAccess；beforeTurn(src/server.ts:152-183) 直接从可控实例名拆出 agentId/projectId 注入工具。Lane A、Lane B 各自独立复现；Lane B 实测 GET /agents/agent-d-o/victim:secret-project/get-messages 返回 200。",
       "body": "handleApi 对 /agents/* 返回 null，随后 routeAgentRequest 不查 WorkspaceDO 归属、不查 ProjectDO 成员关系。DO 实例名由客户端提供（src/ui/Chat.tsx:31-32 公开了拼法），于是「实例名能被解析」被当成了授权事实。\n\n同一条通道既能读别人 session 历史，也能发消息驱动 victim agent 读写 victim project，写入的文件 owner 还是攻击者指定的 agentId。\n\n修的方向：给 routeAgentRequest 配 onBeforeRequest / onBeforeConnect，用已验证邮箱校验 agent 与 project 归属；DO 名要带 owner，不能继续拿裸 ${agentId}:${projectId} 当边界。",
       "created": "2026-08-31T11:45:59Z",
-      "updated": "2026-08-31T15:47:29Z",
+      "updated": "2026-09-01T08:13:09Z",
       "history": [
         {
           "ts": "2026-08-31T11:45:59Z",
@@ -26,6 +26,11 @@
           "ts": "2026-08-31T15:47:29Z",
           "author": "claude-code",
           "change": "status: open → shipped — 已修并本地复验（测试 + 真机）。标 shipped 不标 fixed：验证是我自己做的，发现它的四个 reviewer 已 dismiss，还没有独立复审这批修复。"
+        },
+        {
+          "ts": "2026-09-01T08:13:09Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -34,13 +39,13 @@
       "num": 2,
       "title": "建同名 project / agent 即可读到别人的文件内容与身份文档",
       "severity": "P0",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/api.ts:209-225 先把裸 projectId 加进自己的 WorkspaceDO，再用全局 ProjectDO.idFromName(projectId) 把自己加成成员，于是 src/api.ts:232-235 的归属检查随后放行。我本人用两个不同邮箱写了复现测试，两条断言全过：B 读到 A 的 secret.md 内容 victim secret，以及 A 的 identityDoc victim private soul。",
       "body": "两步：\n1. B 先 GET /api/projects/<A的id> → 404，归属检查看起来有效\n2. B POST /api/projects 用同一个 projectId → 201\n3. B 再 GET 文件详情 → 200，拿到 A 的内容\n\nagent 同理：POST /api/agents 用同名 agentId 且不传 soul，会覆盖 profile、保留原 soul，然后 GET /api/agents/<id> 就能读到别人的身份文档。\n\n这条推翻了 NOTES 里那条 open-question 的判断（我当时写的是「今天不会真的漏」）——归属检查本身可被污染，不是只有「两人恰好用同一 id」才撞车。\n\n修的方向同 A-1：ProjectDO / AgentIdentityDO 实例名带 owner 前缀，DO 内存不可变 owner 并在 RPC 层校验调用者。",
       "created": "2026-08-31T11:46:32Z",
-      "updated": "2026-08-31T15:47:29Z",
+      "updated": "2026-09-01T08:13:09Z",
       "history": [
         {
           "ts": "2026-08-31T11:46:32Z",
@@ -51,6 +56,11 @@
           "ts": "2026-08-31T15:47:29Z",
           "author": "claude-code",
           "change": "status: open → shipped — 已修并本地复验（测试 + 真机）。标 shipped 不标 fixed：验证是我自己做的，发现它的四个 reviewer 已 dismiss，还没有独立复审这批修复。"
+        },
+        {
+          "ts": "2026-09-01T08:13:09Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -59,13 +69,13 @@
       "num": 3,
       "title": "提及深度存在 session 级单值键，并发提及会互相覆盖并绕过 3 跳上限",
       "severity": "P0",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/server.ts:103 put / :131 get / :140 delete 共用一个 MENTION_DEPTH_KEY；metadata 里写了 depth 但 grep 全仓无读取方。我写了复现测试，两条断言全过：第二条提及把深度从 1 覆盖成 3；一轮 onChatResponse 之后排队中的真 depth=3 读到 0。",
       "body": "spec（docs/architecture/agentshow-design.md 第 6 节）把环的防护列为「必须有的」，理由是 A @ B、B @ A 会一直烧钱。当前实现在两条提及排队到同一目标时双向失效：既会误拦合法的第 2 跳，也会放行本该拦住的第 4 跳。\n\nLane A 和 Lane D 独立报了同一条。\n\n修的方向：depth 绑到 submission/turn，不要放 AgentDO 全局键。",
       "created": "2026-08-31T11:46:32Z",
-      "updated": "2026-08-31T15:47:29Z",
+      "updated": "2026-09-01T08:13:09Z",
       "history": [
         {
           "ts": "2026-08-31T11:46:32Z",
@@ -76,6 +86,11 @@
           "ts": "2026-08-31T15:47:29Z",
           "author": "claude-code",
           "change": "status: open → shipped — 已修并本地复验（测试 + 真机）。标 shipped 不标 fixed：验证是我自己做的，发现它的四个 reviewer 已 dismiss，还没有独立复审这批修复。"
+        },
+        {
+          "ts": "2026-09-01T08:13:09Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -84,13 +99,13 @@
       "num": 4,
       "title": "幂等键用消息内容拼成，合理的重复提及被静默吞掉但活动流仍记成功",
       "severity": "P1",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/server.ts:118-125 键为 mention:fromId:path:message；notifyMention 返回 Promise<void>，丢弃了 SubmitMessagesResult.accepted（node_modules/@cloudflare/think/dist/index-B7zEkBBM.d.ts:704-706 确认该字段存在）。src/mention.ts:68-76 无条件 recordMention。Lane A 实测连发两次相同提及，listSubmissions() 只有 1 条。",
       "body": "同一个人一小时后在同一文件上说同样的话（合理的催办）会命中旧键，目标不会新起一轮，但界面新增一条「A 提及了 B」。这正是代码注释里自己警告过的失败模式：agent 说我 @ 了它，然后什么都没发生。\n\n另外 Lane A 指出字段未转义：path=a:b + message=c 与 path=a + message=b:c 会撞同一个键。\n\n修的方向：每次提及动作生成独立 mentionId，只用它做网络重试幂等；检查 accepted，只有真接受才记活动。",
       "created": "2026-08-31T11:47:29Z",
-      "updated": "2026-08-31T15:47:30Z",
+      "updated": "2026-09-01T08:13:09Z",
       "history": [
         {
           "ts": "2026-08-31T11:47:29Z",
@@ -101,6 +116,11 @@
           "ts": "2026-08-31T15:47:30Z",
           "author": "claude-code",
           "change": "status: open → shipped — 随 P0 那批一起修掉（同一处代码）。同样待独立复审。"
+        },
+        {
+          "ts": "2026-09-01T08:13:09Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -249,13 +269,13 @@
       "num": 12,
       "title": "展示用的 session 索引写入是每轮推理的硬依赖，它失败整轮对话就不开始",
       "severity": "P2",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/server.ts:160-167 在 beforeTurn 里 await project.upsertSession，未捕获异常；该 RPC 的唯一作用是让中栏会话列表有条目和新鲜时间戳。",
       "body": "ProjectDO 短暂不可用时，一个只影响列表新鲜度的故障会升级成整轮模型调用不启动。每一轮都执行，已建好的 session 也躲不开。\n\n修的方向：改成 best-effort，失败记日志让推理继续。",
       "created": "2026-08-31T12:01:35Z",
-      "updated": "2026-08-31T15:47:30Z",
+      "updated": "2026-09-01T08:13:09Z",
       "history": [
         {
           "ts": "2026-08-31T12:01:35Z",
@@ -266,6 +286,11 @@
           "ts": "2026-08-31T15:47:30Z",
           "author": "claude-code",
           "change": "status: open → shipped — 随 P0 那批一起修掉（同一处代码）。同样待独立复审。"
+        },
+        {
+          "ts": "2026-09-01T08:13:09Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -354,13 +379,13 @@
       "num": 17,
       "title": "任何一次轮询失败会把整个应用永久换成一行英文异常，成功的轮询救不回来",
       "severity": "P0",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/client.tsx 里 setError 只出现三次：34 行声明、42/49 行两个 catch —— 全文件没有一次 setError(null)；client.tsx:70 是 if (error) return <Center>{error}</Center>。Lane C 实测注入一次 500 后等 14 秒 3 次成功轮询不恢复；注入 TypeError 同样不恢复。",
       "body": "client.tsx:64-68 每 4 秒掷一次骰子。演示时 agent 正在推理、DO 冷启、Wi-Fi 抖一下，任何一次命中，左中右三栏全没了，变成一行 12px 灰字：Error: /api/projects/pricing → 500。只有手动刷新能出来，而刷新又会丢掉当前位置（见 A-27）。\n\nString(e) 把 Error: 前缀、内部路由和 HTTP 状态码一起端给了用户。\n\n修的方向：轮询失败不该有资格接管整个应用。首次 /api/me 失败才算致命；轮询失败只在角落挂一条中文提示，reload 成功时 setError(null)。",
       "created": "2026-08-31T12:17:36Z",
-      "updated": "2026-08-31T15:47:30Z",
+      "updated": "2026-09-01T08:13:09Z",
       "history": [
         {
           "ts": "2026-08-31T12:17:36Z",
@@ -371,6 +396,11 @@
           "ts": "2026-08-31T15:47:30Z",
           "author": "claude-code",
           "change": "status: open → shipped — 已修并本地复验（测试 + 真机）。标 shipped 不标 fixed：验证是我自己做的，发现它的四个 reviewer 已 dismiss，还没有独立复审这批修复。"
+        },
+        {
+          "ts": "2026-09-01T08:13:09Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -379,13 +409,13 @@
       "num": 18,
       "title": "切 project 时在途的旧响应会把上个项目画上来，用户的评论会落进错的 project",
       "severity": "P1",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/client.tsx:45-50 的 reload 里 .then(setProject) 没有任何「这个响应还属不属于当前 projectId」的校验；src/ui/FileDetail.tsx:267-268 的评论 POST 用的是 project.projectId，即那份数据自带的 id。Lane C 实测把 pricing 响应延迟 5 秒后点 sea-saas，21.23 秒时迟到响应落地，中栏标题变回「定价页改版」，持续 3 秒。",
       "body": "这 3 秒里左栏高亮 SEA SaaS、中栏标题写定价页改版，界面自相矛盾。而且文件列表是旧 project 的，用户点进去留的评论会 POST 到旧 project —— 他以为自己在 B 项目里说话，字落进了 A 项目。\n\n修的方向：reload 里带上发起时的 projectId，.then 里比一次再 setProject；或给 fetch 挂 AbortController。",
       "created": "2026-08-31T12:17:36Z",
-      "updated": "2026-08-31T15:47:30Z",
+      "updated": "2026-09-01T08:13:10Z",
       "history": [
         {
           "ts": "2026-08-31T12:17:36Z",
@@ -396,6 +426,11 @@
           "ts": "2026-08-31T15:47:30Z",
           "author": "claude-code",
           "change": "status: open → shipped — 随 P0 那批一起修掉（同一处代码）。同样待独立复审。"
+        },
+        {
+          "ts": "2026-09-01T08:13:10Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -684,13 +719,13 @@
       "num": 33,
       "title": "叫 dm 的 project 会和 DM 槽位撞同一个实例名",
       "severity": "P2",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/agent-key.ts 里 dm 既是 DM 的保留编码又是合法 slug；实测 agentKey('a@x.com','ag') 与 agentKey('a@x.com','ag','dm') 产出同一字符串，parseAgentKey 还原成 projectId: null。Lane E 静态分析发现，我复现确认。",
       "body": "后果不是跨租户，是同一个人内部：一条 project 叫 dm 的 session 会被解析成 DM，于是 beforeTurn 提前 return，静默地拿不到任何 project 工具。\n\n已修：建 project 时把 dm 挡掉（isProjectId）。",
       "created": "2026-08-31T17:05:22Z",
-      "updated": "2026-09-01T02:50:41Z",
+      "updated": "2026-09-01T08:13:10Z",
       "history": [
         {
           "ts": "2026-08-31T17:05:22Z",
@@ -701,6 +736,11 @@
           "ts": "2026-09-01T02:50:41Z",
           "author": "claude-code",
           "change": "(note only) — 补强：保留字改在 WorkspaceDO 的存储边界上挡（addProject 抛错、listProjects 过滤、getProject 返回 null），不只挡 HTTP schema。两条 lane 都指出只挡建的时候，升级前已存在的 dm 行仍会被列出并打开成无工具的 DM session。"
+        },
+        {
+          "ts": "2026-09-01T08:13:10Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -709,18 +749,23 @@
       "num": 34,
       "title": "修复自身引入：正文里夹带的旧深度标记能盖掉真实深度",
       "severity": "P0",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/server.ts 的 notifyMention 先拼 agent 完全可控的 p.message，最后才追加真实 depthLine；而 depthInText 原本取第一个匹配。Lane F 报的，我写 probe 复现：正文含第 0 跳、末尾第 3 跳，读出来是 0。",
       "body": "一个复述了自己收到的通知的 agent 会把旧的低深度带过去，于是每一跳都读到 0，A↔B 的环永远拦不住 —— 等于我这次修 A-3 时把它换了个形式又打开了。\n\n已修两处：拼装前 stripDepthMarks 抹掉正文里的标记；depthInText 改成取所有匹配里的最大值（在防死循环的闸上，少算一跳的代价远大于多算一跳）。",
       "created": "2026-08-31T17:05:22Z",
-      "updated": "2026-08-31T17:05:22Z",
+      "updated": "2026-09-01T08:13:10Z",
       "history": [
         {
           "ts": "2026-08-31T17:05:22Z",
           "author": "claude-code",
           "change": "created · shipped · P0"
+        },
+        {
+          "ts": "2026-09-01T08:13:10Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -729,18 +774,23 @@
       "num": 35,
       "title": "修复自身引入：幂等键改成每次随机后，生产调用方永远命中不到去重",
       "severity": "P1",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/api.ts 的 SendMention schema 原本没有 mentionId，deliverMention 缺省时每次生成新 UUID。Lane F 用 probe 连发两次相同 payload：两次 201，目标 listSubmissions() 为 2。",
       "body": "A-4 原本的毛病是「内容相同就吞掉」，我改成随机 id 之后变成了反面：断线重试会把目标真的叫醒两次，重复写文件、重复计费。\n\n已修：API 接受调用方传的 mentionId 并透传；前端 Composer 为一次提交生成一个 id，成功前的重试复用它；duplicate 改成幂等成功（201）而不是 400。",
       "created": "2026-08-31T17:05:22Z",
-      "updated": "2026-08-31T17:05:22Z",
+      "updated": "2026-09-01T08:13:10Z",
       "history": [
         {
           "ts": "2026-08-31T17:05:22Z",
           "author": "claude-code",
           "change": "created · shipped · P1"
+        },
+        {
+          "ts": "2026-09-01T08:13:10Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -749,18 +799,23 @@
       "num": 36,
       "title": "失败后改文案或换目标再发，会静默丢消息或让两个 agent 都开工",
       "severity": "P1",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/ui/FileDetail.tsx 的 actionId 只在成功后清空，文案和目标变化都不重置。Grist 在真服务上验证：同 ID 改文案重发得到 201 duplicate，目标 ledger 只有 1 条且只含第一版正文；改投另一个 agent 则两个目标各有 1 条 completed submission。Cinder 独立报了同一条。",
       "body": "两条 lane 独立撞上。这是我上一轮修 A-4 时引入的：只按 id 去重，而 id 不跟着内容走。\n\n已修：id 绑在 {目标, 文件, 正文} 的不可变快照上 —— 内容一变就是一次新动作、换新 id；原样重试才复用。",
       "created": "2026-09-01T02:50:41Z",
-      "updated": "2026-09-01T02:50:41Z",
+      "updated": "2026-09-01T08:13:10Z",
       "history": [
         {
           "ts": "2026-09-01T02:50:41Z",
           "author": "claude-code",
           "change": "created · shipped · P1"
+        },
+        {
+          "ts": "2026-09-01T08:13:10Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -769,18 +824,23 @@
       "num": 37,
       "title": "把提及深度放进消息正文这个设计本身是错的",
       "severity": "P1",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "两轮各生一个洞：agent 复述通知把旧深度带过去（A-34）；人在聊天框打出那句话就能伪造深度（Cinder MED，我复现确认 depthInText 读到 3，导致合法提及被拦）。根因是 src/server.ts 的 beforeTurn 从 ctx.messages 的最后一条 user 消息里恢复控制状态，而那是用户和模型都能写的地方。",
       "body": "第一版把深度存在 AgentDO 的单值键里 —— 排队的两条提及互相覆盖。\n第二版写进消息正文 —— 可被夹带、可被伪造。\n两版的共同点：控制状态放在了别人能写的地方。\n\n已改成服务端自己的账：ProjectDO 新增 mention_chain 表，每投递成功一条记一跳；\n下一跳的深度 = 「谁最近叫醒过我」那一行的深度 + 1，查不到就是 0，\n窗口 15 分钟之外的旧记录不算。链条上任何一方都改不动。\n\n连带删掉 depthLine / depthInText / stripDepthMarks / depthOf 和消息里那行标记 —— 整条补丁链消失。",
       "created": "2026-09-01T02:50:41Z",
-      "updated": "2026-09-01T02:50:41Z",
+      "updated": "2026-09-01T08:13:10Z",
       "history": [
         {
           "ts": "2026-09-01T02:50:41Z",
           "author": "claude-code",
           "change": "created · shipped · P1"
+        },
+        {
+          "ts": "2026-09-01T08:13:10Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -789,18 +849,23 @@
       "num": 38,
       "title": "提及深度绑到当前 submission —— 时间窗账本替代不了链条身份",
       "severity": "P1",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "两条 lane 独立报同一条。Sump 实测：给 a 写入 [0,3] 两条记录后，a 走短链 @ B 得到 max_depth。Bramble 补上反方向：depth=3 的提及排队超过 15 分钟窗口后，下一跳被重算成 0，第 4 跳会被放行。",
       "body": "这是深度机制的第四版。前三版：AgentDO 跨轮单值键（并发覆盖）→ 消息正文（可夹带可伪造）→ ProjectDO 时间窗账本（窗口≠链条身份）。\n\n实测确认了一个我原本判断做不到的接缝：beforeTurn 里 listSubmissions({status:'running'}) 恰好返回当前这一条，metadata 带着 depth。\nPROBE running= [{id:…, md:{source:mention, from:dev@localhost, depth:0}}]\n\n于是深度绑在 submission 上 —— 它就是「这一轮」本身，前三版都是它的近似。\n连带删掉整张 mention_chain 表、窗口、MAX 聚合，以及 Sump 报的另一条 HIGH（投递与记账不原子，重投走 duplicate 提前返回导致永久漏记一跳）和 LOW（表只增不删无上界）—— 那些问题随账本一起消失。",
       "created": "2026-09-01T03:59:31Z",
-      "updated": "2026-09-01T03:59:31Z",
+      "updated": "2026-09-01T08:13:10Z",
       "history": [
         {
           "ts": "2026-09-01T03:59:31Z",
           "author": "claude-code",
           "change": "created · shipped · P1"
+        },
+        {
+          "ts": "2026-09-01T08:13:10Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -809,18 +874,23 @@
       "num": 39,
       "title": "mentionAgent 的说明没告诉模型 max_depth 是终止信号",
       "severity": "P2",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "src/mention.ts 的 MentionResult 有 max_depth 分支，但 src/agent-tools.ts 的 description 只解释了 unknown_agent。Sump 指出模型可能换个说法重试，白耗工具步。",
       "body": "已补：明确写出这是终止信号，不要改写措辞重试、不要换目标、不要在这一轮再调这个工具，把手上的活做完并告诉用户链条到头了。",
       "created": "2026-09-01T03:59:31Z",
-      "updated": "2026-09-01T03:59:31Z",
+      "updated": "2026-09-01T08:13:10Z",
       "history": [
         {
           "ts": "2026-09-01T03:59:31Z",
           "author": "claude-code",
           "change": "created · shipped · P2"
+        },
+        {
+          "ts": "2026-09-01T08:13:10Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
@@ -829,18 +899,23 @@
       "num": 40,
       "title": "三处成功响应断言被放松成部分匹配",
       "severity": "P3",
-      "status": "shipped",
+      "status": "fixed",
       "owner": "",
       "batch": "",
       "evidence": "我上一轮把 toEqual 改成 toMatchObject 来容纳新增的 depth 字段（实际是三处，我自报时说的两处）。Bramble 指出成功响应意外带上 reason 或别的泄漏字段时测试仍会绿。",
       "body": "已改回完整形状断言：toEqual({ok:true, toAgentId, depth})，链条测试逐跳断言完整返回值。",
       "created": "2026-09-01T03:59:31Z",
-      "updated": "2026-09-01T03:59:31Z",
+      "updated": "2026-09-01T08:13:10Z",
       "history": [
         {
           "ts": "2026-09-01T03:59:31Z",
           "author": "claude-code",
           "change": "created · shipped · P3"
+        },
+        {
+          "ts": "2026-09-01T08:13:10Z",
+          "author": "claude-code",
+          "change": "status: shipped → fixed — 已合入 main 并由 CI 部署到线上（version 43d25d66，run 33485625812 全绿）。经四轮独立复审：一轮审原码、二三四轮各审上一轮的修复，最后一轮的结论已实现且两条 lane 的发现全部处置。"
         }
       ]
     },
