@@ -171,6 +171,35 @@ export class ProjectDO extends DurableObject<Env> {
       }));
   }
 
+  // ── 提及链的跳数 ──────────────────────────────────────────────────────
+
+  /**
+   * 叫醒 `agentId` 的那条提及处在第几跳。没有（或只有窗口之外的旧记录）返回 null。
+   *
+   * 取窗口内的最大值：出现多条时保守往上取 —— 在一个防死循环的闸上，
+   * 少算一跳会让环继续烧钱，多算一跳只是拦下一次合法提及。
+   */
+  lastMentionDepth(agentId: string, windowMs: number): number | null {
+    const row = this.ctx.storage.sql
+      .exec<{ d: number | null }>(
+        "SELECT MAX(depth) AS d FROM mention_chain WHERE to_agent_id = ? AND at >= ?",
+        agentId,
+        Date.now() - windowMs
+      )
+      .toArray()[0];
+    return row?.d ?? null;
+  }
+
+  /** 投递成功后记一跳。`at` 只有在造历史数据时才传。 */
+  recordMentionHop(m: { toAgentId: string; depth: number; at?: number }): void {
+    this.ctx.storage.sql.exec(
+      "INSERT INTO mention_chain (to_agent_id, depth, at) VALUES (?, ?, ?)",
+      m.toAgentId,
+      m.depth,
+      m.at ?? Date.now()
+    );
+  }
+
   /** 提及的活动记录由 deliverMention 在投递成功后调用。发起方可以是人。 */
   recordMention(m: { fromId: string; toAgentId: string; path: string }): void {
     this.#record({

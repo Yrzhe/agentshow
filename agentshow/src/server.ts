@@ -7,27 +7,11 @@ import { handleApi } from "./api";
 import { type AgentKey, parseAgentKey, scoped } from "./agent-key";
 import { checkAgentRoute } from "./agent-route";
 import { projectTools } from "./agent-tools";
-import {
-  deliverMention,
-  depthInText,
-  depthLine,
-  stripDepthMarks
-} from "./mention";
+import { deliverMention } from "./mention";
 
 export { AgentIdentityDO } from "./agent-identity";
 export { ProjectDO } from "./project";
 export { WorkspaceDO } from "./workspace";
-
-/** 这一轮所处的提及深度，从它自己的消息里读。编解码在 mention.ts。 */
-function depthOf(messages: ModelMessage[]): number {
-  const last = [...messages].reverse().find((m) => m.role === "user");
-  if (!last) return 0;
-  const text =
-    typeof last.content === "string"
-      ? last.content
-      : last.content.map((p) => (p.type === "text" ? p.text : "")).join("");
-  return depthInText(text);
-}
 
 /**
  * 这条 session 的标题，只在第一轮定一次。
@@ -128,12 +112,9 @@ export class AgentDO extends Think<Env> {
 
     const text = [
       `${p.fromName} 在文件 ${p.path} 上 @ 了你：`,
-      // 正文是发起方 agent 完全控制的。它复述自己收到的通知时会把旧的
-      // 低深度一起带过来，而真实深度追加在末尾 —— 不抹掉的话环就拦不住了。
-      stripDepthMarks(p.message),
+      p.message,
       "",
-      `先用 readProjectFile 读 ${p.path}，再决定怎么回应。`,
-      depthLine(p.depth)
+      `先用 readProjectFile 读 ${p.path}，再决定怎么回应。`
     ].join("\n");
 
     const result = await this.submitMessages(
@@ -169,9 +150,6 @@ export class AgentDO extends Think<Env> {
       this.env.ProjectDO.idFromName(scoped(owner, projectId))
     );
 
-    // 这一轮所处的提及深度，从这一轮自己的消息里读。
-    const depth = depthOf(ctx.messages);
-
     // 让这条 session 出现在 project 的会话列表里。没有这一步，
     // 中栏永远是空的 —— 消息住在这个 DO 里，project 手里只有索引。
     //
@@ -199,9 +177,9 @@ export class AgentDO extends Think<Env> {
             fromId: agentId,
             toAgentName: input.toAgentName,
             path: input.path,
-            message: input.message,
-            // 我被 @ 到第 n 跳，我再 @ 别人就是第 n+1 跳。
-            depth: depth + 1
+            message: input.message
+            // 深度由 deliverMention 从 ProjectDO 的提及链算出来 ——
+            // 这一轮无从声称自己在第几跳，也就伪造不了。
           })
       })
     };

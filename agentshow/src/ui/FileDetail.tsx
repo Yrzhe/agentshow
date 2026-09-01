@@ -259,13 +259,16 @@ function Composer({
   const [failed, setFailed] = useState<string | null>(null);
 
   /**
-   * 这一次提及动作的 id，重试时复用。
+   * 这一次提及动作的身份：一个 id 加上它对应的**内容快照**。
    *
-   * 没有它的话，「服务端收下了但响应在路上断了」这种情况会变成：界面显示
-   * 「没能叫醒」，用户照原样再点一次，目标被真的叫醒第二次 —— 重复写文件、
-   * 重复留评论、重复计费。id 在成功之后才清掉，所以任意多次重试都只算一次。
+   * 只有 id 是不够的。只按 id 去重时，「发失败 → 改文案 → 再发」会复用旧 id，
+   * 服务端按老动作返回 duplicate，改后的文案静默丢掉；换个 @ 对象再发更糟 ——
+   * 新目标的 ledger 里没有这个 id，于是**两个 agent 都被叫醒**去做不同的事。
+   *
+   * 所以 id 绑在快照上：内容一变就是一次新动作、换一个新 id；
+   * 原样重试才复用，那正是幂等要保护的那种情况。
    */
-  const actionId = useRef<string | null>(null);
+  const action = useRef<{ id: string; snapshot: string } | null>(null);
 
   async function submit() {
     if (!text.trim() || busy) return;
@@ -273,7 +276,12 @@ function Composer({
     setFailed(null);
 
     const target = agents.find((a) => a.memberId === to);
-    if (target && !actionId.current) actionId.current = crypto.randomUUID();
+
+    // 目标、文件、正文任一不同就是另一次动作。
+    const snapshot = JSON.stringify([target?.memberId ?? null, path, text.trim()]);
+    if (target && action.current?.snapshot !== snapshot) {
+      action.current = { id: crypto.randomUUID(), snapshot };
+    }
     const res = await fetch(
       `/api/projects/${projectId}/${target ? "mentions" : "comments"}`,
       {
@@ -285,7 +293,7 @@ function Composer({
                 toAgentName: target.name,
                 path,
                 message: text.trim(),
-                mentionId: actionId.current
+                mentionId: action.current?.id
               }
             : { path, text: text.trim(), anchor: anchor ?? undefined }
         )
@@ -298,7 +306,7 @@ function Composer({
       setFailed(target ? `没能叫醒 ${target.name}` : "没能留下这条评论");
       return;
     }
-    actionId.current = null;
+    action.current = null;
     setText("");
     setTo(null);
     onDone();

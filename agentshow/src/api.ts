@@ -334,8 +334,7 @@ export async function handleApi(
       owner: email,
       projectId,
       fromId: email,
-      // 人发起的是第 0 跳。链条从这里开始计数，被叫的 agent 再 @ 别人是第 1 跳。
-      depth: 0,
+      // 人不是任何提及的目标，所以链条从这里算出来就是第 0 跳。
       ...parsed.data
     });
     // duplicate 是幂等成功：这条提及早就投递过了，重试不该报错。

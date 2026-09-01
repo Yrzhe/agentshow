@@ -1,8 +1,8 @@
 {
   "project": "agentshow",
   "prefix": "A",
-  "next_num": 36,
-  "updated": "2026-08-31T17:05:22Z",
+  "next_num": 38,
+  "updated": "2026-09-01T02:50:41Z",
   "issues": [
     {
       "id": "A-1",
@@ -690,12 +690,17 @@
       "evidence": "src/agent-key.ts 里 dm 既是 DM 的保留编码又是合法 slug；实测 agentKey('a@x.com','ag') 与 agentKey('a@x.com','ag','dm') 产出同一字符串，parseAgentKey 还原成 projectId: null。Lane E 静态分析发现，我复现确认。",
       "body": "后果不是跨租户，是同一个人内部：一条 project 叫 dm 的 session 会被解析成 DM，于是 beforeTurn 提前 return，静默地拿不到任何 project 工具。\n\n已修：建 project 时把 dm 挡掉（isProjectId）。",
       "created": "2026-08-31T17:05:22Z",
-      "updated": "2026-08-31T17:05:22Z",
+      "updated": "2026-09-01T02:50:41Z",
       "history": [
         {
           "ts": "2026-08-31T17:05:22Z",
           "author": "claude-code",
           "change": "created · shipped · P2"
+        },
+        {
+          "ts": "2026-09-01T02:50:41Z",
+          "author": "claude-code",
+          "change": "(note only) — 补强：保留字改在 WorkspaceDO 的存储边界上挡（addProject 抛错、listProjects 过滤、getProject 返回 null），不只挡 HTTP schema。两条 lane 都指出只挡建的时候，升级前已存在的 dm 行仍会被列出并打开成无工具的 DM session。"
         }
       ]
     },
@@ -734,6 +739,46 @@
       "history": [
         {
           "ts": "2026-08-31T17:05:22Z",
+          "author": "claude-code",
+          "change": "created · shipped · P1"
+        }
+      ]
+    },
+    {
+      "id": "A-36",
+      "num": 36,
+      "title": "失败后改文案或换目标再发，会静默丢消息或让两个 agent 都开工",
+      "severity": "P1",
+      "status": "shipped",
+      "owner": "",
+      "batch": "",
+      "evidence": "src/ui/FileDetail.tsx 的 actionId 只在成功后清空，文案和目标变化都不重置。Grist 在真服务上验证：同 ID 改文案重发得到 201 duplicate，目标 ledger 只有 1 条且只含第一版正文；改投另一个 agent 则两个目标各有 1 条 completed submission。Cinder 独立报了同一条。",
+      "body": "两条 lane 独立撞上。这是我上一轮修 A-4 时引入的：只按 id 去重，而 id 不跟着内容走。\n\n已修：id 绑在 {目标, 文件, 正文} 的不可变快照上 —— 内容一变就是一次新动作、换新 id；原样重试才复用。",
+      "created": "2026-09-01T02:50:41Z",
+      "updated": "2026-09-01T02:50:41Z",
+      "history": [
+        {
+          "ts": "2026-09-01T02:50:41Z",
+          "author": "claude-code",
+          "change": "created · shipped · P1"
+        }
+      ]
+    },
+    {
+      "id": "A-37",
+      "num": 37,
+      "title": "把提及深度放进消息正文这个设计本身是错的",
+      "severity": "P1",
+      "status": "shipped",
+      "owner": "",
+      "batch": "",
+      "evidence": "两轮各生一个洞：agent 复述通知把旧深度带过去（A-34）；人在聊天框打出那句话就能伪造深度（Cinder MED，我复现确认 depthInText 读到 3，导致合法提及被拦）。根因是 src/server.ts 的 beforeTurn 从 ctx.messages 的最后一条 user 消息里恢复控制状态，而那是用户和模型都能写的地方。",
+      "body": "第一版把深度存在 AgentDO 的单值键里 —— 排队的两条提及互相覆盖。\n第二版写进消息正文 —— 可被夹带、可被伪造。\n两版的共同点：控制状态放在了别人能写的地方。\n\n已改成服务端自己的账：ProjectDO 新增 mention_chain 表，每投递成功一条记一跳；\n下一跳的深度 = 「谁最近叫醒过我」那一行的深度 + 1，查不到就是 0，\n窗口 15 分钟之外的旧记录不算。链条上任何一方都改不动。\n\n连带删掉 depthLine / depthInText / stripDepthMarks / depthOf 和消息里那行标记 —— 整条补丁链消失。",
+      "created": "2026-09-01T02:50:41Z",
+      "updated": "2026-09-01T02:50:41Z",
+      "history": [
+        {
+          "ts": "2026-09-01T02:50:41Z",
           "author": "claude-code",
           "change": "created · shipped · P1"
         }

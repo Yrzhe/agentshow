@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { isProjectId } from "./agent-key";
 
 /**
  * 一个人的工作台：他有哪些 project、他造了哪些 agent。
@@ -46,6 +47,13 @@ export class WorkspaceDO extends DurableObject<Env> {
    * 每次 seed 都长出一个新 project。
    */
   addProject(p: ProjectRef): void {
+    // 保留字挡在存储边界上，不只挡在 HTTP schema 上。
+    // 只挡建的时候，一条升级前就存在的 `dm` 行会继续被列出来、被打开，
+    // 而它的 session key 会被解析成 DM —— 那个 project 静默地拿不到任何工具。
+    if (!isProjectId(p.projectId)) {
+      throw new Error(`不能用作项目 id：${p.projectId}`);
+    }
+
     this.ctx.storage.sql.exec(
       `INSERT INTO projects (project_id, name, created_at) VALUES (?, ?, ?)
        ON CONFLICT(project_id) DO UPDATE SET name = excluded.name`,
@@ -55,16 +63,20 @@ export class WorkspaceDO extends DurableObject<Env> {
     );
   }
 
+  /** 历史数据里可能有非法行，读的时候也筛一遍 —— 列出一个注定打不开的
+   *  project 比不列出来更糟。 */
   listProjects(): ProjectRef[] {
     return this.ctx.storage.sql
       .exec<{ project_id: string; name: string }>(
         "SELECT project_id, name FROM projects ORDER BY created_at ASC"
       )
       .toArray()
+      .filter((r) => isProjectId(r.project_id))
       .map((r) => ({ projectId: r.project_id, name: r.name }));
   }
 
   getProject(projectId: string): ProjectRef | null {
+    if (!isProjectId(projectId)) return null;
     const row = this.ctx.storage.sql
       .exec<{ project_id: string; name: string }>(
         "SELECT project_id, name FROM projects WHERE project_id = ?",

@@ -186,7 +186,7 @@ describe("人发起的 @提及", () => {
       message: "把第 42 行的空数组处理掉"
     });
     expect(res?.status).toBe(201);
-    expect(await res!.json()).toEqual({ ok: true, toAgentId: "ferrule" });
+    expect(await res!.json()).toMatchObject({ ok: true, toAgentId: "ferrule" });
 
     const p = (await (await get("/api/projects/pricing"))!.json()) as ProjectView;
     expect(p.activity[0]).toMatchObject({
