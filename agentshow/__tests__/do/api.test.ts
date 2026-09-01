@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { scoped } from "../../src/agent-key";
 import { handleApi } from "../../src/api";
 import type {
+  ActivityPage,
   AgentCardView,
   FileDetailView,
   MeView,
@@ -232,5 +233,38 @@ describe("身份卡", () => {
 
   it("查不到别人工作台里的 agent", async () => {
     expect((await get("/api/agents/ferrule", OTHER))?.status).toBe(404);
+  });
+});
+
+describe("活动流往回展开", () => {
+  it("project 快照带着「还有没有更早的」", async () => {
+    const view = (await (await get("/api/projects/pricing"))!.json()) as ProjectView;
+    // 这个 project 的活动远不到一页，所以这里必须是 false ——
+    // 界面拿它决定「更早的」出不出现，答成 true 就是给一个空按钮。
+    expect(view.activityHasMore).toBe(false);
+  });
+
+  it("limit 拿的是最近 N 条", async () => {
+    const page = (await (await get(
+      "/api/projects/pricing/activity?limit=1"
+    ))!.json()) as ActivityPage;
+    expect(page.activity).toHaveLength(1);
+
+    const view = (await (await get("/api/projects/pricing"))!.json()) as ProjectView;
+    expect(page.activity[0].id).toBe(view.activity[0].id);
+    expect(page.hasMore).toBe(view.activity.length > 1);
+  });
+
+  // 没有上限的话 ?limit=1000000 就能把整张表拖出来。
+  it("limit 不合法一律 400", async () => {
+    for (const q of ["", "?limit=0", "?limit=-1", "?limit=abc", "?limit=501", "?limit=1.5"]) {
+      expect((await get(`/api/projects/pricing/activity${q}`))?.status).toBe(400);
+    }
+  });
+
+  it("别人的 project 展不开", async () => {
+    expect(
+      (await get("/api/projects/pricing/activity?limit=50", OTHER))?.status
+    ).toBe(404);
   });
 });

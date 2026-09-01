@@ -7,9 +7,8 @@ import { scoped } from "../../src/agent-key";
 /**
  * 提及链的核心不变量：环一定会停，而且并发不会让账算少。
  *
- * 这是深度机制的第三版（前两版分别栽在「跨轮共享的单值键」和
- * 「写进消息正文」上，都被复审打回）。这一版把账记在 ProjectDO 里，
- * 链条上任何一方都改不动 —— 下面两条就是那个断言。
+ * 深度绑在**正在执行的那条 submission** 的 metadata 上，由服务端写入
+ * （AgentDO.#currentDepth）—— 链条上任何一方都改不动。下面几条就是那个断言。
  */
 
 const OWNER = "c@x.com";
@@ -69,5 +68,50 @@ describe("并发与环", () => {
     ]);
     expect(x).toEqual({ ok: true, toAgentId: "b", depth: 1 });
     expect(y).toEqual({ ok: true, toAgentId: "b", depth: MAX_MENTION_DEPTH });
+  });
+});
+
+describe("被拦下的那一跳要留在活动流里", () => {
+  it("超过上限时记一条 blocked，而不是无声地返回", async () => {
+    const p = env.ProjectDO.get(env.ProjectDO.idFromName(scoped(OWNER, P)));
+    const before = await runInDurableObject(p, async (o) =>
+      o.listActivity(200).filter((r) => r.verb === "blocked").length
+    );
+
+    const r = await deliverMention(env, {
+      ...base,
+      fromId: "a",
+      toAgentName: "B",
+      depth: MAX_MENTION_DEPTH + 1
+    });
+    expect(r).toEqual({ ok: false, reason: "max_depth" });
+
+    await runInDurableObject(p, async (o) => {
+      const blocked = o.listActivity(200).filter((r) => r.verb === "blocked");
+      expect(blocked).toHaveLength(before + 1);
+      expect(blocked[0].actorId).toBe("a");
+      expect(blocked[0].detail).toBe("B");
+    });
+  });
+
+  // 拦下来这件事记了，但不能顺手记成一条「A 提及了 B」——
+  // 那样活动流会显示提及成功，而目标从没醒过。
+  it("记 blocked 不记 mentioned", async () => {
+    const p = env.ProjectDO.get(env.ProjectDO.idFromName(scoped(OWNER, P)));
+    const before = await runInDurableObject(p, async (o) =>
+      o.listActivity(200).filter((r) => r.verb === "mentioned").length
+    );
+
+    await deliverMention(env, {
+      ...base,
+      fromId: "a",
+      toAgentName: "B",
+      depth: MAX_MENTION_DEPTH + 1
+    });
+
+    await runInDurableObject(p, async (o) => {
+      const after = o.listActivity(200).filter((r) => r.verb === "mentioned");
+      expect(after).toHaveLength(before);
+    });
   });
 });

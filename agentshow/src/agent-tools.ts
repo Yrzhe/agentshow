@@ -23,6 +23,17 @@ export type ProjectToolDeps = {
   /** 谁在干这件事 —— 文件归属、评论作者、提及发起方都用它。 */
   authorId: string;
   /**
+   * 这个 agent 能不能改公共区的文件。
+   *
+   * 复审者的「我从不改代码」如果只写在 soul 里，那就只是一句承诺：
+   * 模型偏离一次、或者用户说一句「顺手修一下」，它照样能整份覆盖文件。
+   * 而界面把它展示成一个独立的只读复审者 —— 用户没法区分这个承诺
+   * 是被强制的还是靠自觉。所以在这里真的不注入写工具。
+   *
+   * 只读不等于哑巴：评论和 @提及 照旧，那正是复审者的产出。
+   */
+  canWrite: boolean;
+  /**
    * 投递一条 @提及。做成回调而不是让这里直接拿 env，
    * 是为了把「怎么投递」留在 server.ts，这个模块只管定义工具。
    */
@@ -36,9 +47,37 @@ export type ProjectToolDeps = {
 export function projectTools({
   project,
   authorId,
+  canWrite,
   mention
 }: ProjectToolDeps): ToolSet {
+  const write: ToolSet = !canWrite
+    ? {}
+    : {
+        // 这段 description 是整个工具集里最重要的一段文字，不是注释。
+        // 乐观并发成不成立，取决于模型看到 stale 之后是重做还是报错放弃，
+        // 而它唯一的依据就是这里写没写清楚。
+        writeProjectFile: tool({
+          description:
+            "写 project 公共区的文件。baseVersion 必须是你刚才用 readProjectFile " +
+            "读到的那个版本号；文件还不存在时传 0。\n" +
+            '如果返回 { ok: false, reason: "stale" }，说明在你思考期间别人改了这个文件。' +
+            "这不是错误，是正常情况 —— 返回里的 content 就是当前的最新内容，version 是当前版本号。" +
+            "请在这份新内容的基础上重新做一遍你的修改，然后用新的 version 作为 baseVersion 重试。" +
+            "不要放弃，也不要把 stale 当作失败报告给用户。",
+          inputSchema: z.object({
+            path: z.string().describe("公共区里的文件路径"),
+            content: z.string().describe("文件的完整新内容，不是补丁"),
+            baseVersion: z
+              .number()
+              .describe("你读到这个文件时的版本号；新文件传 0")
+          }),
+          execute: async (input) => project.writeFile({ ...input, authorId })
+        })
+      };
+
   return {
+    ...write,
+
     listProjectFiles: tool({
       description:
         "列出当前 project 公共区里的所有文件，含归属和版本号。" +
@@ -56,27 +95,6 @@ export function projectTools({
         path: z.string().describe("公共区里的文件路径，例如 spec.md")
       }),
       execute: async ({ path }) => project.readFile(path)
-    }),
-
-    // 这段 description 是整个 Task 里最重要的一段文字，不是注释。
-    // 乐观并发成不成立，取决于模型看到 stale 之后是重做还是报错放弃，
-    // 而它唯一的依据就是这里写没写清楚。
-    writeProjectFile: tool({
-      description:
-        "写 project 公共区的文件。baseVersion 必须是你刚才用 readProjectFile " +
-        "读到的那个版本号；文件还不存在时传 0。\n" +
-        "如果返回 { ok: false, reason: \"stale\" }，说明在你思考期间别人改了这个文件。" +
-        "这不是错误，是正常情况 —— 返回里的 content 就是当前的最新内容，version 是当前版本号。" +
-        "请在这份新内容的基础上重新做一遍你的修改，然后用新的 version 作为 baseVersion 重试。" +
-        "不要放弃，也不要把 stale 当作失败报告给用户。",
-      inputSchema: z.object({
-        path: z.string().describe("公共区里的文件路径"),
-        content: z.string().describe("文件的完整新内容，不是补丁"),
-        baseVersion: z
-          .number()
-          .describe("你读到这个文件时的版本号；新文件传 0")
-      }),
-      execute: async (input) => project.writeFile({ ...input, authorId })
     }),
 
     // 评论是复审 agent 的产出，也是人类看到的东西。

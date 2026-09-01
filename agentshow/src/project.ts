@@ -142,7 +142,41 @@ export class ProjectDO extends DurableObject<Env> {
     );
   }
 
-  listActivity(limit = 50): ActivityRow[] {
+  /**
+   * `before` 给定时只返回比它更旧的行，用来往回翻。
+   *
+   * 不给上限而一次全取是不行的：活动流是这个 project 里最长的一张表。
+   * 但只给一个硬窗口也不行 —— 那样界面会把「最近 50 条」当成全部历史
+   * 展示出去，第 51 条之后的东西从所有筛选视图里永久消失。
+   */
+  listActivity(limit = 50, before?: number): ActivityRow[] {
+    if (before !== undefined) {
+      return this.#activityRows(
+        `SELECT id, actor_id, actor_kind, verb, target_type, target_id, detail, at
+         FROM activity WHERE id < ? ORDER BY id DESC LIMIT ?`,
+        [before, limit]
+      );
+    }
+    return this.#activityRows(
+      `SELECT id, actor_id, actor_kind, verb, target_type, target_id, detail, at
+       FROM activity ORDER BY id DESC LIMIT ?`,
+      [limit]
+    );
+  }
+
+  /** 还有没有比这条更旧的。界面拿它决定「更早的」这个入口出不出现。 */
+  hasActivityBefore(id: number): boolean {
+    return (
+      this.ctx.storage.sql
+        .exec<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM (SELECT id FROM activity WHERE id < ? LIMIT 1)",
+          id
+        )
+        .toArray()[0].n > 0
+    );
+  }
+
+  #activityRows(sql: string, params: unknown[]): ActivityRow[] {
     return this.ctx.storage.sql
       .exec<{
         id: number;
@@ -153,11 +187,7 @@ export class ProjectDO extends DurableObject<Env> {
         target_id: string;
         detail: string | null;
         at: number;
-      }>(
-        `SELECT id, actor_id, actor_kind, verb, target_type, target_id, detail, at
-         FROM activity ORDER BY id DESC LIMIT ?`,
-        limit
-      )
+      }>(sql, ...params)
       .toArray()
       .map((r) => ({
         id: r.id,
@@ -179,6 +209,36 @@ export class ProjectDO extends DurableObject<Env> {
       targetType: "file",
       targetId: m.path,
       detail: m.toAgentId
+    });
+  }
+
+  /**
+   * 提及链撞上跳数上限。主语是**发起方** —— 是它的这一次投递被拦下的。
+   *
+   * detail 记要 @ 的那个名字：链条断在谁面前，是用户接手时第一个要知道的事。
+   */
+  recordMentionBlocked(m: {
+    fromId: string;
+    toAgentName: string;
+    path: string;
+  }): void {
+    this.#record({
+      actorId: m.fromId,
+      verb: "blocked",
+      targetType: "file",
+      targetId: m.path,
+      detail: m.toAgentName
+    });
+  }
+
+  /** 被叫醒的那一轮推理挂了。主语是失败的那个 agent。 */
+  recordTurnFailed(m: { agentId: string; detail?: string }): void {
+    this.#record({
+      actorId: m.agentId,
+      verb: "failed",
+      targetType: "session",
+      targetId: m.agentId,
+      detail: m.detail
     });
   }
 

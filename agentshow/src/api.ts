@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AgentProfile } from "./agent-identity";
 import type {
+  ActivityPage,
   AgentCardView,
   FileDetailView,
   FileView,
@@ -43,6 +44,7 @@ const CreateAgent = z.object({
   description: z.string().max(600).optional(),
   capabilities: z.array(z.string().max(40)).max(8).optional(),
   avatar: z.string().max(200).optional(),
+  readOnly: z.boolean().optional(),
   soul: z.string().max(8000).optional()
 });
 
@@ -67,6 +69,12 @@ const SendMention = z.object({
   mentionId: z.string().min(8).max(64).optional()
 });
 
+/** 活动流一页多少条。轮询每次都会重取这一页，所以它同时是刷新的粒度。 */
+const ACTIVITY_PAGE = 50;
+
+/** 一次最多取多少条。上限的作用是挡住 ?limit=1000000 把整张表拖出来。 */
+const ACTIVITY_MAX = 500;
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -83,17 +91,47 @@ function displayName(email: string): string {
   return email.split("@")[0] || email;
 }
 
+/**
+ * 身份卡的短 TTL 缓存。
+ *
+ * 界面每 4 秒轮询一次 project 快照，而快照要按成员逐个取身份卡 ——
+ * 四个 agent 成员就是每 4 秒多打四次 AgentIdentityDO，取的是名字、简介、
+ * 头像这些几乎从不变的东西。
+ *
+ * 缓存活在 isolate 里，所以它只是「变更最多晚 TTL 秒可见」，不是一致性保证。
+ * 同一个 isolate 里的写入会就地失效；别的 isolate 靠 TTL 过期。
+ * 这个取舍对头像和简介成立，对权限之类的东西不成立 —— 别往这里加那种字段。
+ */
+const PROFILE_TTL = 30_000;
+const profileCache = new Map<string, { at: number; profile: AgentProfile }>();
+
+async function cachedProfile(
+  env: Env,
+  owner: string,
+  agentId: string
+): Promise<AgentProfile> {
+  const key = scoped(owner, agentId);
+  const hit = profileCache.get(key);
+  if (hit && Date.now() - hit.at < PROFILE_TTL) return hit.profile;
+
+  const profile = await env.AgentIdentityDO.get(
+    env.AgentIdentityDO.idFromName(key)
+  ).getProfile();
+  profileCache.set(key, { at: Date.now(), profile });
+  return profile;
+}
+
+function forgetProfile(owner: string, agentId: string): void {
+  profileCache.delete(scoped(owner, agentId));
+}
+
 async function agentViews(
   env: Env,
   owner: string,
   agentIds: string[]
 ): Promise<MemberView[]> {
   const profiles = await Promise.all(
-    agentIds.map((id) =>
-      env.AgentIdentityDO.get(
-        env.AgentIdentityDO.idFromName(scoped(owner, id))
-      ).getProfile()
-    )
+    agentIds.map((id) => cachedProfile(env, owner, id))
   );
   return agentIds.map((id, i) => toAgentView(id, profiles[i]));
 }
@@ -126,17 +164,20 @@ async function projectView(
     project.listMembers(),
     project.listFiles(),
     project.commentCounts(),
-    project.listActivity(50),
+    project.listActivity(ACTIVITY_PAGE),
     project.listSessions()
   ]);
+
+  const oldest = activity[activity.length - 1];
+  const activityHasMore = oldest
+    ? await project.hasActivityBefore(oldest.id)
+    : false;
 
   // agent 成员的简介和头像住在 AgentIdentityDO，members 表里只有名字。
   const profiles = await Promise.all(
     members.map((m) =>
       m.kind === "agent"
-        ? env.AgentIdentityDO.get(
-            env.AgentIdentityDO.idFromName(scoped(owner, m.memberId))
-          ).getProfile()
+        ? cachedProfile(env, owner, m.memberId)
         : Promise.resolve(null)
     )
   );
@@ -169,6 +210,7 @@ async function projectView(
     members: memberViews,
     files: fileViews,
     activity,
+    activityHasMore,
     sessions
   };
 }
@@ -213,6 +255,7 @@ export async function handleApi(
     await identity.setProfile(profile);
     if (soul) await identity.setIdentityDoc(soul);
     await workspace.addAgent(agentId);
+    forgetProfile(email, agentId);
 
     return json(toAgentView(agentId, profile), 201);
   }
@@ -232,8 +275,15 @@ export async function handleApi(
     if (!parsed.success) return json({ error: parsed.error.issues }, 400);
     const { projectId, name } = parsed.data;
 
-    await workspace.addProject({ projectId, name });
-
+    // 先入成员表，再登记到工作台。
+    //
+    // 这两步跨两个 DO，做不成一次原子写；能选的只有失败时留下哪一半。
+    // 反过来的话，第二步失败会留下一个「工作台里列着、但成员表里没有他」
+    // 的 project：归属闸放行，而 ProjectDO 的 #kindOf 对不在表里的作者
+    // 一律回退成 agent —— 他之后留的每条评论，活动流里的主语都是 agent。
+    //
+    // 现在这个顺序，失败留下的是一个还没登记的 ProjectDO：它不在任何列表里、
+    // 直接访问被闸挡成 404，重试一次就好（addMember 是 upsert）。
     const me: Member = {
       memberId: email,
       kind: "human",
@@ -242,6 +292,8 @@ export async function handleApi(
     await env.ProjectDO.get(
       env.ProjectDO.idFromName(scoped(email, projectId))
     ).addMember(me);
+
+    await workspace.addProject({ projectId, name });
 
     return json({ projectId, name }, 201);
   }
@@ -270,9 +322,7 @@ export async function handleApi(
     const mine = await workspace.listAgents();
     if (!mine.includes(agentId)) return json({ error: "unknown agent" }, 400);
 
-    const profile = await env.AgentIdentityDO.get(
-      env.AgentIdentityDO.idFromName(scoped(email, agentId))
-    ).getProfile();
+    const profile = await cachedProfile(env, email, agentId);
 
     await env.ProjectDO.get(
       env.ProjectDO.idFromName(scoped(email, projectId))
@@ -314,6 +364,27 @@ export async function handleApi(
       comments
     };
     return json(detail);
+  }
+
+  // GET /api/projects/:id/activity?limit=N —— 展开更长的一段活动流
+  //
+  // 要的是「最近 N 条」而不是「某条之前的一页」。游标分页在这里会裂缝：
+  // 界面每 4 秒重取一次最近 50 条，用户翻出来的那一页却是按当时的边界取的 ——
+  // 期间新来的活动就掉进两段之间，谁也不显示。一整段重取没有这个问题。
+  if (method === "GET" && parts[2] === "activity" && parts.length === 3) {
+    const raw = url.searchParams.get("limit");
+    const limit = raw === null ? NaN : Number(raw);
+    if (!Number.isInteger(limit) || limit <= 0 || limit > ACTIVITY_MAX) {
+      return json({ error: `limit 要是 1 到 ${ACTIVITY_MAX} 的整数` }, 400);
+    }
+
+    const activity = await project.listActivity(limit);
+    const oldest = activity[activity.length - 1];
+    const page: ActivityPage = {
+      activity,
+      hasMore: oldest ? await project.hasActivityBefore(oldest.id) : false
+    };
+    return json(page);
   }
 
   // POST /api/projects/:id/comments —— 人在文件上留一条评论
@@ -386,6 +457,7 @@ async function agentCard(
     description: profile.description,
     capabilities: profile.capabilities,
     avatar: profile.avatar,
+    readOnly: profile.readOnly,
     identityDoc,
     projects: all.filter((_, i) => membership[i])
   };

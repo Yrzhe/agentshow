@@ -49,8 +49,17 @@ export type ProjectView = {
   name: string;
   members: MemberView[];
   files: FileView[];
+  /** 最近的一页。更早的走 /api/projects/:id/activity?before=。 */
   activity: ActivityRow[];
+  /** 这一页之外还有没有更早的。界面拿它决定「更早的」出不出现。 */
+  activityHasMore: boolean;
   sessions: SessionView[];
+};
+
+/** 往回翻活动流。`hasMore` 说的是这一页之外还有没有。 */
+export type ActivityPage = {
+  activity: ActivityRow[];
+  hasMore: boolean;
 };
 
 export type MeView = {
@@ -84,6 +93,11 @@ export type AgentCardView = {
   description?: string;
   capabilities?: string[];
   avatar?: string;
+  /**
+   * 拿不到写公共区的工具。这是被强制的，不是身份文档里的一句承诺 ——
+   * 界面上说「只改评论不改文件」的那句话，得有这个字段撑着才算数。
+   */
+  readOnly?: boolean;
   /** 身份文档本身。这是「它是什么」最直接的回答。 */
   identityDoc: string;
   projects: ProjectRef[];

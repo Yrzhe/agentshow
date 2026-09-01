@@ -83,7 +83,9 @@ const BADGE: Record<string, Badge> = {
   comment: { label: "评论", bg: "#F4EFE9", fg: "#8A6A4A" },
   mention: { label: "提及", bg: "#E8F0EC", fg: "#2E7D68" },
   session: { label: "会话", bg: "#E8F0EC", fg: "#2E7D68" },
-  member: { label: "成员", bg: "#EDEDED", fg: "#6E6E6E" }
+  member: { label: "成员", bg: "#EDEDED", fg: "#6E6E6E" },
+  // 这一类是「需要人接手」的信号，颜色跟别的分开。
+  stalled: { label: "中断", bg: "#F7E9E4", fg: "#9A5B44" }
 };
 
 export type ActivityLine = {
@@ -113,9 +115,12 @@ export function activityLine(
     case "created":
       return { text: `${who} 创建了 ${what}`, badge: BADGE.file };
 
+    // 版本号进副句，不裸接在句尾。同一列里 rejected 已经是「手上是 v1，
+    // 公共区已经是 v2」这样的中文副句，两种待遇读起来像两个产品。
     case "updated":
       return {
-        text: `${who} 写入 ${what} ${row.detail ?? ""}`.trim(),
+        text: `${who} 写入了 ${what}`,
+        detail: row.detail ? `现在是 ${row.detail}` : undefined,
         badge: BADGE.file
       };
 
@@ -142,6 +147,22 @@ export function activityLine(
       return {
         text: `${who} 提及了 ${nameOf(row.detail ?? "", members)}，在 ${what}`,
         badge: BADGE.mention
+      };
+
+    case "failed":
+      return {
+        text: `${who} 没能完成这一轮`,
+        detail: row.detail ?? undefined,
+        badge: BADGE.stalled
+      };
+
+    // detail 存的是 @ 的那个名字本身，不是 id —— 链条断在这个名字面前时，
+    // 它可能根本不是本 project 的成员，解析不出来。
+    case "blocked":
+      return {
+        text: `${who} 想叫 ${row.detail ?? "别人"}，被拦下了`,
+        detail: "提及链已经到最大跳数，需要你来接下一步",
+        badge: BADGE.stalled
       };
 
     case "joined":
@@ -192,8 +213,7 @@ export type CollapsedActivity = { row: ActivityRow; count: number };
  * v1→v2→v3 的推进本身就是要看的东西。
  */
 export function collapseActivity(rows: ActivityRow[]): CollapsedActivity[] {
-  const out: CollapsedActivity[] = [];
-  for (const row of rows) {
+  return rows.reduce<CollapsedActivity[]>((out, row) => {
     const last = out[out.length - 1];
     const mergeable =
       last &&
@@ -202,10 +222,24 @@ export function collapseActivity(rows: ActivityRow[]): CollapsedActivity[] {
       last.row.actorId === row.actorId &&
       last.row.targetId === row.targetId;
 
-    if (mergeable) last.count += 1;
-    else out.push({ row, count: 1 });
-  }
-  return out;
+    if (!mergeable) return [...out, { row, count: 1 }];
+
+    // 合并 anchor，不是留下第一条的那个。只留一个的话，「留了 2 条 /
+    // 第 43 行」读起来像这两条都在说第 43 行 —— 而另一条说的是第 4 行。
+    return [
+      ...out.slice(0, -1),
+      {
+        row: { ...last.row, detail: mergeAnchors(last.row.detail, row.detail) },
+        count: last.count + 1
+      }
+    ];
+  }, []);
+}
+
+/** 去重保序。都为空时回 null —— 有些评论本来就不指向具体某处。 */
+function mergeAnchors(a: string | null, b: string | null): string | null {
+  const parts = [...new Set([a, b].filter((x): x is string => Boolean(x)))];
+  return parts.length ? parts.join("、") : null;
 }
 
 export function nameOf(id: string, members: MemberView[]): string {

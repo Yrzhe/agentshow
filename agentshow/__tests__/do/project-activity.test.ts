@@ -89,4 +89,54 @@ describe("ProjectDO 活动流", () => {
       expect(all[0].at).toBeGreaterThanOrEqual(all[all.length - 1].at);
     });
   });
+
+  // 界面拿它决定「更早的」出不出现。答错就是要么骗人说没有了、
+  // 要么给一个点了什么都不来的按钮。
+  it("hasActivityBefore 认得出还有没有更早的", async () => {
+    await runInDurableObject(p(), async (o) => {
+      const all = o.listActivity(1000);
+      const oldest = all[all.length - 1];
+      expect(o.hasActivityBefore(oldest.id)).toBe(false);
+      expect(o.hasActivityBefore(all[0].id)).toBe(true);
+    });
+  });
+
+  it("窗口之外的行还在，只是要更大的 limit 才拿得到", async () => {
+    await runInDurableObject(p(), async (o) => {
+      const total = o.listActivity(1000).length;
+      expect(total).toBeGreaterThan(2);
+      expect(o.listActivity(2)).toHaveLength(2);
+      expect(o.listActivity(total)).toHaveLength(total);
+    });
+  });
+
+  describe("链条断掉时也要留下痕迹", () => {
+    // 不记的话，时间线停在「A 提及了 B」，而「B 在处理」「B 失败了」
+    // 「B 被深度闸拦了」这三种状态在界面上完全无法区分。
+    it("提及被跳数上限拦下时记一条，主语是发起方", async () => {
+      await runInDurableObject(p(), async (o) => {
+        o.recordMentionBlocked({
+          fromId: "sable",
+          toAgentName: "Ferrule",
+          path: "pricing.tsx"
+        });
+        const top = o.listActivity(1)[0];
+        expect(top.verb).toBe("blocked");
+        expect(top.actorId).toBe("sable");
+        expect(top.targetId).toBe("pricing.tsx");
+        // 记名字不记 id：链条断在这个名字面前时，它可能根本不是成员。
+        expect(top.detail).toBe("Ferrule");
+      });
+    });
+
+    it("推理失败记一条，主语是失败的那个 agent", async () => {
+      await runInDurableObject(p(), async (o) => {
+        o.recordTurnFailed({ agentId: "verdigris", detail: "ferrule 叫醒的那一轮" });
+        const top = o.listActivity(1)[0];
+        expect(top.verb).toBe("failed");
+        expect(top.actorId).toBe("verdigris");
+        expect(top.targetType).toBe("session");
+      });
+    });
+  });
 });

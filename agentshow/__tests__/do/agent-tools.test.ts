@@ -9,11 +9,12 @@ import { projectTools } from "../../src/agent-tools";
  * 而那正是这一层唯一会出错的地方。
  */
 
-function toolsFor(agentName: string) {
+function toolsFor(agentName: string, canWrite = true) {
   const stub = env.ProjectDO.get(env.ProjectDO.idFromName("p-tools"));
   return projectTools({
     project: stub,
     authorId: agentName,
+    canWrite,
     // 这组测试只验 project 文件工具，提及走 mention.test.ts。
     mention: async () => ({ ok: true })
   });
@@ -96,5 +97,22 @@ describe("project 工具接真 ProjectDO", () => {
     // 是重做还是报错放弃，而它唯一的依据就是这段说明。
     expect(desc).toContain("stale");
     expect(desc).toMatch(/重做|retry|重试/);
+  });
+
+  describe("只读的 agent", () => {
+    // 「我从不改代码」写在 soul 里只是一句承诺 —— 模型偏离一次、
+    // 或者用户说一句「顺手修一下」，它照样能整份覆盖文件。
+    // 而界面把它展示成一个独立的只读复审者。
+    it("根本拿不到写工具", () => {
+      expect(toolsFor("verdigris", false).writeProjectFile).toBeUndefined();
+    });
+
+    it("读、评论、@提及照旧 —— 那正是复审者的产出", () => {
+      const t = toolsFor("verdigris", false);
+      expect(t.readProjectFile).toBeDefined();
+      expect(t.listProjectFiles).toBeDefined();
+      expect(t.commentOnProjectFile).toBeDefined();
+      expect(t.mentionAgent).toBeDefined();
+    });
   });
 });

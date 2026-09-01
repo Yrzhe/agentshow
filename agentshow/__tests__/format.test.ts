@@ -130,7 +130,7 @@ describe("activityLine", () => {
   // 这个产品的整个论点就是这一句：主语是 agent 的名字，不是 id。
   it("主语是行动者的名字", () => {
     expect(activityLine(row({ detail: "v3" }), MEMBERS).text).toBe(
-      "Ferrule 写入 pricing-table.tsx v3"
+      "Ferrule 写入了 pricing-table.tsx"
     );
   });
 
@@ -163,7 +163,7 @@ describe("activityLine", () => {
 
   it("解析不到的 id 退回原样 —— 成员被移出后他做过的事还在流里", () => {
     const line = activityLine(row({ actorId: "sable", detail: "v1" }), MEMBERS);
-    expect(line.text).toBe("sable 写入 pricing-table.tsx v1");
+    expect(line.text).toBe("sable 写入了 pricing-table.tsx");
   });
 
   it("折叠后的评论说总数", () => {
@@ -239,5 +239,87 @@ describe("行内 markdown", () => {
   // 跨行配对会把两段无关的话粘成一块代码。
   it("记号不跨行配对", () => {
     expect(parseInline("`a\nb`")).toEqual([{ kind: "text", value: "`a\nb`" }]);
+  });
+});
+
+describe("链条断掉的两行", () => {
+  const stalled = (verb: ActivityRow["verb"], detail: string | null): ActivityRow => ({
+    id: 1,
+    actorId: "verdigris",
+    actorKind: "agent",
+    verb,
+    targetType: "session",
+    targetId: "verdigris",
+    detail,
+    at: 0
+  });
+
+  it("失败的主语是 agent 自己", () => {
+    const line = activityLine(stalled("failed", "ferrule 叫醒的那一轮"), MEMBERS);
+    expect(line.text).toBe("Verdigris 没能完成这一轮");
+    expect(line.detail).toBe("ferrule 叫醒的那一轮");
+  });
+
+  // detail 存的是 @ 的那个名字本身，不是 id —— 它可能根本不是成员。
+  it("被拦下时说清是想叫谁，并告诉用户要接手", () => {
+    const line = activityLine(stalled("blocked", "Sable"), MEMBERS);
+    expect(line.text).toBe("Verdigris 想叫 Sable，被拦下了");
+    expect(line.detail).toMatch(/接下一步/);
+  });
+});
+
+describe("写入的版本号不裸接在句尾", () => {
+  it("版本进副句", () => {
+    const line = activityLine(
+      {
+        id: 2,
+        actorId: "ferrule",
+        actorKind: "agent",
+        verb: "updated",
+        targetType: "file",
+        targetId: "pricing.tsx",
+        detail: "v2",
+        at: 0
+      },
+      MEMBERS
+    );
+    expect(line.text).toBe("Ferrule 写入了 pricing.tsx");
+    expect(line.detail).toBe("现在是 v2");
+  });
+});
+
+describe("折叠后的评论行", () => {
+  const comment = (id: number, anchor: string | null): ActivityRow => ({
+    id,
+    actorId: "verdigris",
+    actorKind: "agent",
+    verb: "commented",
+    targetType: "file",
+    targetId: "pricing.tsx",
+    detail: anchor,
+    at: 0
+  });
+
+  // 只留第一条的 anchor 时，「留了 2 条 / 第 43 行」读起来像这两条
+  // 都在说第 43 行 —— 而另一条说的是第 4 行。
+  it("把几条的位置合起来，不是只留其中一条的", () => {
+    const [only] = collapseActivity([comment(2, "第 43 行"), comment(1, "第 4 行")]);
+    expect(only.count).toBe(2);
+    expect(only.row.detail).toBe("第 43 行、第 4 行");
+  });
+
+  it("同一处不重复列", () => {
+    const [only] = collapseActivity([comment(2, "第 4 行"), comment(1, "第 4 行")]);
+    expect(only.row.detail).toBe("第 4 行");
+  });
+
+  it("都没有位置时不硬造一个", () => {
+    const [only] = collapseActivity([comment(2, null), comment(1, null)]);
+    expect(only.row.detail).toBeNull();
+  });
+
+  it("不折叠不同人的评论", () => {
+    const other = { ...comment(1, "第 4 行"), actorId: "ferrule" };
+    expect(collapseActivity([comment(2, "第 43 行"), other])).toHaveLength(2);
   });
 });

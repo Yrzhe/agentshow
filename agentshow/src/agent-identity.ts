@@ -29,6 +29,14 @@ export type AgentProfile = {
    * 都该是同一张脸，否则活动流里认不出是谁。
    */
   avatar?: string;
+  /**
+   * 只读的 agent 拿不到写公共区的工具（见 agent-tools.ts 的 canWrite）。
+   *
+   * 放在身份卡里而不是每个 project 各配一份：能不能改东西是这个 agent
+   * 是谁的一部分，跟它在哪个项目里无关。界面上那句「从不改代码」
+   * 也是从这里来的 —— 一句被强制的话，才配写在身份卡上。
+   */
+  readOnly?: boolean;
 };
 
 /** 空的 soul 会让 agent 没有人格，所以给一个能用的兜底。 */

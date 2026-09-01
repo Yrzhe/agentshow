@@ -68,11 +68,20 @@ export async function deliverMention(
   env: Env,
   input: MentionInput
 ): Promise<MentionResult> {
-  if (input.depth > MAX_MENTION_DEPTH) return { ok: false, reason: "max_depth" };
-
   const project = env.ProjectDO.get(
     env.ProjectDO.idFromName(scoped(input.owner, input.projectId))
   );
+
+  if (input.depth > MAX_MENTION_DEPTH) {
+    // 记一条再返回。不记的话链条就是无声地断在这儿 —— 时间线停在
+    // 上一条「A 提及了 B」，而需要人接手这件事没有任何地方说。
+    await project.recordMentionBlocked({
+      fromId: input.fromId,
+      toAgentName: input.toAgentName,
+      path: input.path
+    });
+    return { ok: false, reason: "max_depth" };
+  }
 
   // 只解析 agent。人类没有 AgentDO，投递过去就是投进虚空 ——
   // 而且不会报错，表现为「agent 说我 @ 了它，然后什么都没发生」。

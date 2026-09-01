@@ -1,5 +1,10 @@
 import { Think } from "@cloudflare/think";
-import type { Session, TurnConfig, TurnContext } from "@cloudflare/think";
+import type {
+  Session,
+  ThinkSubmissionInspection,
+  TurnConfig,
+  TurnContext
+} from "@cloudflare/think";
 import { routeAgentRequest } from "agents";
 import type { ModelMessage } from "ai";
 import { verifyAccess } from "./access";
@@ -134,6 +139,36 @@ export class AgentDO extends Think<Env> {
   }
 
   /**
+   * 被叫醒的那一轮挂了，在活动流里说出来。
+   *
+   * 只管 submission —— 也就是被 @提及 唤醒的那些轮。人自己开的对话失败时
+   * 他正看着屏幕，对话页的横幅已经告诉他了；而被提及唤醒的那一轮没有人在看，
+   * 不记的话时间线就停在「A 提及了 B」，「B 在处理」和「B 挂了」长得一模一样。
+   */
+  protected async onSubmissionStatus(
+    submission: ThinkSubmissionInspection
+  ): Promise<void> {
+    if (submission.status !== "error") return;
+
+    const { owner, agentId, projectId } = this.key;
+    if (!projectId) return;
+
+    const from = submission.metadata?.from;
+    try {
+      await this.env.ProjectDO.get(
+        this.env.ProjectDO.idFromName(scoped(owner, projectId))
+      ).recordTurnFailed({
+        agentId,
+        detail: typeof from === "string" ? `${from} 叫醒的那一轮` : undefined
+      });
+    } catch (e) {
+      // 记不上就算了。这个钩子跑在一轮已经失败之后，再抛一次只是把
+      // 一个失败变成两个。
+      console.error("记录失败轮次时出错：", e);
+    }
+  }
+
+  /**
    * project 工具按轮注入，不放在 getTools() —— 后者没有参数，拿不到上下文。
    *
    * project 来自 DO 实例名，不是请求 body：客户端伪造不了实例名，但能伪造 body。
@@ -174,7 +209,10 @@ export class AgentDO extends Think<Env> {
     const { owner, agentId, projectId } = this.key;
     if (!projectId) return;
 
-    const depth = await this.#currentDepth();
+    const [depth, profile] = await Promise.all([
+      this.#currentDepth(),
+      this.#identity().getProfile()
+    ]);
 
     const project = this.env.ProjectDO.get(
       this.env.ProjectDO.idFromName(scoped(owner, projectId))
@@ -200,6 +238,7 @@ export class AgentDO extends Think<Env> {
       tools: projectTools({
         project,
         authorId: agentId,
+        canWrite: !profile.readOnly,
         mention: async (input) =>
           deliverMention(this.env, {
             owner,

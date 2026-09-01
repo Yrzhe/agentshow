@@ -87,6 +87,15 @@ export type ActivityVerb =
   | "rejected"
   | "commented"
   | "mentioned"
+  /**
+   * 被叫醒的那一轮推理挂了。
+   *
+   * 没有这条，时间线停在「A 提及了 B」，而「B 在处理」「B 失败了」
+   * 在界面上长得一模一样 —— 用户只能一直等下去。
+   */
+  | "failed"
+  /** 提及链到达跳数上限被拦下。同理：不记的话链条就是无声地断在那儿。 */
+  | "blocked"
   | "joined"
   | "completed";
 

@@ -79,6 +79,9 @@ const AGENTS = [
     name: "Verdigris",
     tagline: "只读复审，从不改代码",
     avatar: "/avatars/verdigris.png",
+    // 这句话是被强制的，不是一句承诺：readOnly 的 agent 根本拿不到
+    // writeProjectFile（见 src/agent-tools.ts 的 canWrite）。
+    readOnly: true,
     description:
       "复审别人的产出。看完一定给具体的：哪一处、会导致什么后果、建议怎么改。" +
       "从不动别人的文件 —— 复审的价值在于独立，改了就不再是复审。",
