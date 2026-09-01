@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { ProjectView } from "../api-types";
 import { ActivityTab } from "./ActivityTab";
 import { AgentCard } from "./AgentCard";
@@ -47,29 +46,28 @@ function stampOf(project: ProjectView, path: string): string {
 export function ProjectPanel({
   project,
   meId,
+  tab: picked,
   detail,
+  onTab: go,
   onDetail,
   onOpenProject,
   onReload
 }: {
   project: ProjectView;
   meId: string;
+  /** 选中的 tab 由外层管：它和详情一起住在地址栏里，刷新不丢。 */
+  tab: Tab;
   detail: Detail;
+  onTab: (t: Tab) => void;
   onDetail: (d: Detail) => void;
   /** 身份卡里列着这个 agent 在的项目，点一个就切过去。 */
   onOpenProject: (projectId: string) => void;
   onReload: () => void;
 }) {
-  const [picked, setPicked] = useState<Tab>("概览");
   const tab = detail ? TAB_OF[detail.kind] : picked;
 
   // 一次渲染只取一个「现在」，否则同屏的相对时间会各算各的。
   const now = Date.now();
-
-  function go(t: Tab) {
-    setPicked(t);
-    onDetail(null);
-  }
 
   return (
     <div className="grow min-w-0 flex flex-col bg-white border-l border-[#E9E9E9] h-full">

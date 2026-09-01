@@ -98,45 +98,8 @@ export function PlusIcon({ size = 13, color = "#999999", width = 2.2 }: IconProp
   );
 }
 
-export function ListIcon({ size = 15, color = "#999999" }: IconProps) {
-  const s = stroke(color, 2);
-  return svg(
-    size,
-    <>
-      <path d="M9 6h12" {...s} />
-      <path d="M9 12h12" {...s} />
-      <path d="M9 18h12" {...s} />
-      <path d="M4 6h.01" {...s} />
-      <path d="M4 12h.01" {...s} />
-      <path d="M4 18h.01" {...s} />
-    </>
-  );
-}
-
-export function PanelIcon({ size = 15, color = "#999999" }: IconProps) {
-  const s = stroke(color, 2);
-  return svg(
-    size,
-    <>
-      <rect x="3" y="4" width="18" height="16" rx="2" {...s} />
-      <path d="M10 4v16" {...s} />
-    </>
-  );
-}
-
 export function ChevronDownIcon({ size = 11, color = "#999999" }: IconProps) {
   return svg(size, <path d="m6 9 6 6 6-6" {...stroke(color, 2.2)} />);
-}
-
-export function ChevronUpDownIcon({ size = 13, color = "#999999" }: IconProps) {
-  const s = stroke(color, 2);
-  return svg(
-    size,
-    <>
-      <path d="M7 15l5 5 5-5" {...s} />
-      <path d="M7 9l5-5 5 5" {...s} />
-    </>
-  );
 }
 
 export function SendIcon({ size = 13, color = "#FFFFFF" }: IconProps) {

@@ -22,7 +22,7 @@ export function MembersTab({
           成员
         </span>
         <span className="text-[#777777] text-[10px]/3">
-          {project.members.length} 人 · 其中 {agents} 个 agent
+          {project.members.length - agents} 人 + {agents} 个 Agent
         </span>
       </div>
 

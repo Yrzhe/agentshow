@@ -1,13 +1,6 @@
 import type { MeView } from "../api-types";
 import { Avatar } from "./Avatar";
-import {
-  BotIcon,
-  ChevronUpDownIcon,
-  ComposeIcon,
-  FolderIcon,
-  Logo,
-  PanelIcon
-} from "./icons";
+import { BotIcon, ComposeIcon, FolderIcon, Logo } from "./icons";
 
 /**
  * 左栏：产品标记、两个入口、项目、agent、底部的人。
@@ -28,7 +21,7 @@ export function Sidebar({
 }) {
   return (
     <div className="w-60 shrink-0 flex flex-col bg-[#F3F3F3] h-full">
-      <div className="h-10 shrink-0 flex items-center justify-between pr-4 pl-3.5">
+      <div className="h-10 shrink-0 flex items-center pr-4 pl-3.5">
         <div className="flex items-center gap-2">
           <div className="size-6 shrink-0 flex items-center justify-center rounded-md overflow-hidden bg-white border border-[#E4E4E4]">
             <Logo />
@@ -37,7 +30,6 @@ export function Sidebar({
             agentshow
           </div>
         </div>
-        <PanelIcon />
       </div>
 
       <div className="flex flex-col mt-1.5 px-2.5 gap-px">
@@ -70,7 +62,7 @@ export function Sidebar({
         {me.projects.length === 0 && <Empty>还没有项目</Empty>}
       </Section>
 
-      <Section title="AGENT">
+      <Section title="Agent">
         {me.agents.map((a) => (
           <button
             key={a.memberId}
@@ -84,7 +76,7 @@ export function Sidebar({
             </span>
           </button>
         ))}
-        {me.agents.length === 0 && <Empty>还没有 agent</Empty>}
+        {me.agents.length === 0 && <Empty>还没有 Agent</Empty>}
       </Section>
 
       <div className="mt-auto shrink-0 pb-2.5 px-2.5">
@@ -96,10 +88,9 @@ export function Sidebar({
               {me.name}
             </div>
             <div className="text-[#777777] text-[10px]/3">
-              {me.agents.length} 个 agent · {me.projects.length} 个项目
+              {me.agents.length} 个 Agent · {me.projects.length} 个项目
             </div>
           </div>
-          <ChevronUpDownIcon />
         </div>
       </div>
     </div>

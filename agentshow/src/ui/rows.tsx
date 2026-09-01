@@ -61,12 +61,16 @@ export function MemberRow({
 }) {
   const clickable = m.kind === "agent" && onOpen;
 
+  // 能点的行就是真的 <button>，不是一个挂了 role="button" 的 div ——
+  // 后者辅助技术上报的是按钮、键盘按下去却没反应，而这一屏每个 agent 成员
+  // 都是一个 Tab 停靠点，键盘用户会挨个停过去，每一个都是死的。
+  const Tag = clickable ? "button" : "div";
+
   return (
-    <div
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
+    <Tag
+      type={clickable ? "button" : undefined}
       onClick={clickable ? () => onOpen(m.memberId) : undefined}
-      className={`h-10 shrink-0 flex items-center px-4.5 gap-2.25 ${
+      className={`h-10 w-full shrink-0 flex items-center px-4.5 gap-2.25 text-left ${
         clickable ? "cursor-pointer hover:bg-[#FAFBFC]" : ""
       }`}
     >
@@ -86,9 +90,9 @@ export function MemberRow({
             : "w-16 shrink-0 text-right text-[#777777] text-[10px]/3"
         }
       >
-        {m.kind === "agent" ? "AGENT" : isMe ? "你" : ""}
+        {m.kind === "agent" ? "Agent" : isMe ? "你" : ""}
       </span>
-    </div>
+    </Tag>
   );
 }
 

@@ -57,7 +57,7 @@ export function OverviewTab({
           onOpen={() => onOpenFile(f.path)}
         />
       ))}
-      {project.files.length === 0 && <Empty>还没有共享文件</Empty>}
+      {project.files.length === 0 && <Empty>还没有共享文件。</Empty>}
 
       <div className="mt-3.5" />
       <SectionHeader
@@ -78,7 +78,7 @@ export function OverviewTab({
             now={t}
           />
         ))}
-      {project.activity.length === 0 && <Empty>还没有动静</Empty>}
+      {project.activity.length === 0 && <Empty>还没有动静。</Empty>}
     </div>
   );
 }

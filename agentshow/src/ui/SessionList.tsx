@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { MemberView, ProjectView } from "../api-types";
 import { Avatar } from "./Avatar";
 import { memberOf } from "./format";
-import { ChevronDownIcon, ListIcon, SendIcon } from "./icons";
+import { ChevronDownIcon, SendIcon } from "./icons";
 
 /**
  * 中栏：这个 project 里的会话，加一个发起新对话的输入框。
@@ -34,11 +34,10 @@ export function SessionList({
 
   return (
     <div className="w-130 shrink-0 flex flex-col bg-[#FCFCFC] border-l border-[#0000000F] h-full">
-      <div className="h-10 shrink-0 flex items-center justify-between px-4.5">
+      <div className="h-10 shrink-0 flex items-center px-4.5">
         <div className="font-semibold text-[#121313] text-[15px]/4.5 truncate">
           {project.name}
         </div>
-        <ListIcon />
       </div>
 
       <div className="h-8 shrink-0 flex items-end pb-1 gap-1.75 px-4.5">

@@ -62,7 +62,7 @@ export function AgentCard({
               {card.name}
             </span>
             <span className="font-semibold text-[#2E7D68] text-[9px]/3 tracking-[0.06em]">
-              AGENT
+              Agent
             </span>
           </div>
           {card.tagline && (

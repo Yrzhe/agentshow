@@ -2,7 +2,7 @@
   "project": "agentshow",
   "prefix": "A",
   "next_num": 43,
-  "updated": "2026-09-01T09:34:03Z",
+  "updated": "2026-09-01T10:20:32Z",
   "issues": [
     {
       "id": "A-1",
@@ -924,18 +924,23 @@
       "num": 41,
       "title": "历史 dm 项目被静默从列表抹掉，没有迁移或提示",
       "severity": "P3",
-      "status": "open",
+      "status": "wontfix",
       "owner": "",
       "batch": "",
       "evidence": "src/workspace.ts 的 listProjects 过滤非法行、getProject 返回 null，于是升级前存在的 dm 行会从 /api/me 消失、直接访问 404，而数据仍在存储里。两条 lane 都提了。",
       "body": "没修：当前没有任何已知的线上 dm 数据（线上从未 seed 过），而做迁移需要一条只跑一次的升级路径，为一个假想中的行不值得。\n\n如果将来发现真有这样的数据，做法是升级时改名而不是静默隐藏。",
       "created": "2026-09-01T03:59:31Z",
-      "updated": "2026-09-01T03:59:31Z",
+      "updated": "2026-09-01T10:20:32Z",
       "history": [
         {
           "ts": "2026-09-01T03:59:31Z",
           "author": "claude-code",
           "change": "created · open · P3"
+        },
+        {
+          "ts": "2026-09-01T10:20:32Z",
+          "author": "claude-code",
+          "change": "status: open → wontfix — 线上从未 seed 过，不存在任何已知的 dm 行；为一个假想中的行做一条只跑一次的升级路径不划算。真出现时的做法是升级时改名，不是静默隐藏 —— 这条判断记在 issue 正文里。"
         }
       ]
     },

@@ -2,16 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { MeView, ProjectView } from "./api-types";
 import { Chat } from "./ui/Chat";
-import { type Detail, ProjectPanel } from "./ui/ProjectPanel";
+import { type Detail, ProjectPanel, type Tab } from "./ui/ProjectPanel";
 import { SessionList } from "./ui/SessionList";
 import { Sidebar } from "./ui/Sidebar";
+import { type AppLocation, readLocation, toSearch } from "./ui/url-state";
 import "./styles.css";
 
 /**
  * 三栏：人的东西 / 会话 / project 本身。
  *
- * 中栏和右栏都属于当前选中的 project，所以整个应用的状态只有三个：
- * 选了哪个 project、开着哪条 session、右栏在哪个 tab（那个由右栏自己管）。
+ * 中栏和右栏都属于当前选中的 project。整个应用的位置只有四件事：
+ * 选了哪个 project、开着哪条 session、右栏在哪个 tab、压着哪层详情 ——
+ * 这四件都住在地址栏里，刷新和分享都不丢（见 ui/url-state.ts）。
  */
 
 async function api<T>(path: string): Promise<T> {
@@ -20,21 +22,46 @@ async function api<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** 打开的会话。prompt 只在从输入框直接开一条新会话时有值。 */
-type OpenSession = { agentId: string; prompt?: string };
-
 function App() {
   const [me, setMe] = useState<MeView | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(null);
   const [project, setProject] = useState<ProjectView | null>(null);
-  const [open, setOpen] = useState<OpenSession | null>(null);
-  // 详情压在右栏的某个 tab 上。放在这里而不是 ProjectPanel 里面，
-  // 是因为左栏点一个 agent 也要能打开它的身份卡。
-  const [detail, setDetail] = useState<Detail>(null);
+  const [loc, setLoc] = useState<AppLocation>(() =>
+    readLocation(window.location.search)
+  );
+  /**
+   * 从输入框直接开新会话时带的第一句话。
+   *
+   * 不进地址栏：它是一次性的动作，不是位置。进去的话，刷新会让这句话
+   * 再发一遍，把同一条 session 里的第一句变成两句。
+   */
+  const [prompt, setPrompt] = useState<string | undefined>(undefined);
   /** 起不来才算致命。只有首次 /api/me 失败会置上它。 */
   const [fatal, setFatal] = useState<string | null>(null);
   /** 轮询暂时失败。界面照常可用，只在角落挂一条。 */
   const [stale, setStale] = useState<string | null>(null);
+
+  const projectId = loc.projectId;
+
+  // 前进后退。浏览器改了地址栏，界面跟着走 —— 没有它，返回键会一路
+  // 退出这个应用，而用户以为它只是关掉一层详情。
+  const locRef = useRef(loc);
+  locRef.current = loc;
+  useEffect(() => {
+    const onPop = () => setLoc(readLocation(window.location.search));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const go = useCallback((next: Partial<AppLocation>, replace = false) => {
+    const merged = { ...locRef.current, ...next };
+    const search = toSearch(merged);
+    if (search !== window.location.search) {
+      const url = `${window.location.pathname}${search}`;
+      if (replace) window.history.replaceState(null, "", url);
+      else window.history.pushState(null, "", url);
+    }
+    setLoc(merged);
+  }, []);
 
   // 当前选中的 project，给异步回调看的。用 ref 不用 state：
   // 回调要的是「响应落地那一刻的选中值」，不是它被创建时闭包捕获的那个。
@@ -45,11 +72,16 @@ function App() {
     api<MeView>("/api/me")
       .then((m) => {
         setMe(m);
-        setProjectId((cur) => cur ?? m.projects[0]?.projectId ?? null);
+        // 地址栏没指定就落到第一个项目，并且把它写回地址栏 ——
+        // replace 不 push：这是个默认值，不是用户做过的一次跳转。
+        if (!locRef.current.projectId) {
+          const first = m.projects[0]?.projectId ?? null;
+          if (first) go({ projectId: first }, true);
+        }
       })
       // 只有这一次失败是致命的：没有它连左栏都画不出来。
       .catch(() => setFatal("连不上服务器。刷新页面再试一次。"));
-  }, []);
+  }, [go]);
 
   /**
    * 轮询失败不接管界面。
@@ -80,10 +112,9 @@ function App() {
       });
   }, [projectId]);
 
+  // 换 project 就丢掉上一个的快照。位置本身由地址栏管，这里只管数据。
   useEffect(() => {
     setProject(null);
-    setOpen(null);
-    setDetail(null);
     reload();
   }, [reload]);
 
@@ -109,24 +140,28 @@ function App() {
       <Sidebar
         me={me}
         projectId={projectId}
-        onPickProject={setProjectId}
-        onOpenAgent={(agentId) => setDetail({ kind: "agent", agentId })}
+        onPickProject={(id) =>
+          // 换项目就回到这个项目的起点：会话列表、概览、没有详情。
+          go({ projectId: id, session: null, tab: "概览", detail: null })
+        }
+        onOpenAgent={(agentId) => go({ detail: { kind: "agent", agentId } })}
       />
 
       {!projectId || !project ? (
         <Center>{projectId ? "正在加载项目" : "还没有项目"}</Center>
-      ) : open ? (
+      ) : loc.session ? (
         <Chat
           // 换 agent 就是换一个 DO 实例，重挂载比在 hook 里换连接可靠。
-          key={`${me.email}~${open.agentId}:${projectId}`}
-          agentId={open.agentId}
+          key={`${me.email}~${loc.session}:${projectId}`}
+          agentId={loc.session}
           projectId={projectId}
           owner={me.email}
-          agent={projectAgents.find((a) => a.memberId === open.agentId)}
+          agent={projectAgents.find((a) => a.memberId === loc.session)}
           meName={me.name}
-          firstPrompt={open.prompt}
+          firstPrompt={prompt}
           onBack={() => {
-            setOpen(null);
+            setPrompt(undefined);
+            go({ session: null });
             reload();
           }}
         />
@@ -134,7 +169,10 @@ function App() {
         <SessionList
           project={project}
           agents={projectAgents}
-          onOpen={(agentId, prompt) => setOpen({ agentId, prompt })}
+          onOpen={(agentId, first) => {
+            setPrompt(first);
+            go({ session: agentId });
+          }}
         />
       )}
 
@@ -149,9 +187,13 @@ function App() {
         <ProjectPanel
           project={project}
           meId={me.email}
-          detail={detail}
-          onDetail={setDetail}
-          onOpenProject={setProjectId}
+          tab={loc.tab}
+          detail={loc.detail}
+          onTab={(tab: Tab) => go({ tab, detail: null })}
+          onDetail={(detail: Detail) => go({ detail })}
+          onOpenProject={(id) =>
+            go({ projectId: id, session: null, tab: "概览", detail: null })
+          }
           onReload={reload}
         />
       )}

@@ -48,10 +48,18 @@ export function FileDetail({
     const url = `/api/projects/${projectId}/file?path=${encodeURIComponent(path)}`;
     try {
       const res = await fetch(url);
-      if (!res.ok) throw new Error(`${url} → ${res.status}`);
+      // 404 说明这个文件真的没了，和「一次读失败」不是一回事。
+      if (!res.ok) {
+        throw new Error(
+          res.status === 404 ? "这个文件不在公共区里了" : "这次没读到，可以再试一次"
+        );
+      }
       setFile((await res.json()) as FileDetailView);
+      // 成功必须清掉上一次的错误。不清的话一次失败就永久卡在错误屏上，
+      // 后面每次重取成功都被那一屏挡着，用户看不到。
+      setError(null);
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     }
   }, [projectId, path]);
 
@@ -82,32 +90,62 @@ export function FileDetail({
   const agents = members.filter((m) => m.kind === "agent");
   const now = Date.now();
 
-  if (error) return <Pad>{error}</Pad>;
-  if (!file) return <Pad>正在读文件</Pad>;
+  // 面包屑永远画。它是这一屏唯一的返回入口 —— 在它之前早退，
+  // 用户就被困在一句错误提示上，只能自己发现点上面的 tab 能出去。
+  const breadcrumb = (
+    <div className="flex items-center pt-3.5 gap-1.5 px-4.5">
+      <button
+        type="button"
+        onClick={onClose}
+        className="text-[#999999] text-[10px]/3 hover:text-[#121313]"
+      >
+        文件
+      </button>
+      <span className="text-[#C4C4C4] text-[10px]/3">/</span>
+      <button
+        type="button"
+        onClick={onClose}
+        className="font-medium text-[#777777] text-[10px]/3 hover:text-[#121313]"
+      >
+        共享区
+      </button>
+      <span className="text-[#C4C4C4] text-[10px]/3">/</span>
+      <span className="font-medium text-[#777777] text-[10px]/3 truncate">
+        {path}
+      </span>
+    </div>
+  );
+
+  if (error) {
+    return (
+      <div className="flex flex-col pb-6">
+        {breadcrumb}
+        <div className="px-4.5 py-6 flex flex-col items-start gap-2">
+          <span className="text-[#8A8A8A] text-[11px]/4">{error}</span>
+          <button
+            type="button"
+            onClick={load}
+            className="h-7 px-3 rounded-md border border-[#E4E4E4] text-[#555555] font-medium text-[10px]/3 hover:bg-[#F5F5F5]"
+          >
+            重试
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!file) {
+    return (
+      <div className="flex flex-col pb-6">
+        {breadcrumb}
+        <Pad>正在读文件</Pad>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col pb-6">
-      <div className="flex items-center pt-3.5 gap-1.5 px-4.5">
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-[#999999] text-[10px]/3 hover:text-[#121313]"
-        >
-          文件
-        </button>
-        <span className="text-[#C4C4C4] text-[10px]/3">/</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="font-medium text-[#777777] text-[10px]/3 hover:text-[#121313]"
-        >
-          共享区
-        </button>
-        <span className="text-[#C4C4C4] text-[10px]/3">/</span>
-        <span className="font-medium text-[#777777] text-[10px]/3 truncate">
-          {file.path}
-        </span>
-      </div>
+      {breadcrumb}
 
       <div className="flex items-start gap-2.5 pt-1 pb-3 px-4.5">
         <div className="pt-1">
@@ -134,9 +172,13 @@ export function FileDetail({
       <div className="px-4.5">
         {/* 高度封顶：不封的话一个几百行的文件会把讨论整个顶到折叠线以下，
             而讨论才是这一屏存在的理由。 */}
+        {/* relative 不是装饰：offsetTop 是相对 offsetParent 算的，而
+            overflow:auto 不会让一个元素成为 offsetParent，只有 position 非
+            static 才会。没有它，下面那段跳行算出来的是相对 body 的距离，
+            差着面包屑加标题加 tab 条的高度 —— 目标行反而被滚出视野。 */}
         <div
           ref={codeRef}
-          className="rounded-lg border border-[#ECECEC] bg-[#FCFCFC] overflow-auto max-h-72 py-2"
+          className="relative rounded-lg border border-[#ECECEC] bg-[#FCFCFC] overflow-auto max-h-72 py-2"
         >
           {lines.map((line, i) => {
             const n = i + 1;
@@ -189,7 +231,7 @@ export function FileDetail({
                 </span>
                 {who?.kind === "agent" && (
                   <span className="font-semibold text-[#2E7D68] text-[9px]/3 tracking-[0.06em]">
-                    AGENT
+                    Agent
                   </span>
                 )}
                 <span className="text-[#999999] text-[10px]/3">
@@ -231,6 +273,9 @@ export function FileDetail({
   );
 }
 
+/** 和服务端 AddComment.text / SendMention.message 的 .max(4000) 对齐。 */
+const MAX_TEXT = 4000;
+
 /**
  * 留评论，或者把活交给一个 agent。
  *
@@ -257,6 +302,15 @@ function Composer({
   const [to, setTo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
+  /**
+   * @ 完之后的回执。
+   *
+   * 提及不是评论，讨论区不会因为它多一行 —— 发出去之后输入框清空、
+   * 选中的目标被清掉、连「这会叫醒它」那句提示也跟着消失，整屏没有任何变化。
+   * 失败反而有字。成功也得说一句，否则用户得自己切到活动 tab 去确认。
+   */
+  const [sent, setSent] = useState<string | null>(null);
+  const left = MAX_TEXT - text.length;
 
   /**
    * 这一次提及动作的身份：一个 id 加上它对应的**内容快照**。
@@ -274,6 +328,7 @@ function Composer({
     if (!text.trim() || busy) return;
     setBusy(true);
     setFailed(null);
+    setSent(null);
 
     const target = agents.find((a) => a.memberId === to);
 
@@ -309,16 +364,28 @@ function Composer({
     action.current = null;
     setText("");
     setTo(null);
+    setSent(
+      target
+        ? `已经叫醒 ${target.name}，它会自己读 ${path}`
+        : "评论留下了"
+    );
     onDone();
   }
 
   return (
     <div className="px-4.5 pt-3">
       <div className="rounded-[10px] border border-[#E9E9E9] bg-white p-3">
+        {/* maxLength 和服务端的 .max(4000) 对齐。不挡的话粘 4001 个字符时
+            按钮照常可点、请求照发，回来只有一句「没能留下这条评论」——
+            不说是长度问题，用户只能靠猜。 */}
         <textarea
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            setSent(null);
+          }}
           rows={2}
+          maxLength={MAX_TEXT}
           placeholder="写点什么，或者 @ 一个 agent 让它接手"
           className="w-full resize-none outline-none text-[#121313] text-xs/4 placeholder:text-[#A5A5A5] bg-transparent"
         />
@@ -366,12 +433,24 @@ function Composer({
           </button>
         </div>
 
+        {/* 只在快满的时候才出现。一直挂着一个 4000 的计数器，等于把一个
+            几乎永远碰不到的上限当成写作时要盯的东西。 */}
+        {left <= 200 && (
+          <div className="mt-2 text-[#999999] text-[10px]/3">
+            还能写 {left} 字
+          </div>
+        )}
+
         {failed && (
           <div className="mt-2 text-[#B4552E] text-[10px]/3">{failed}</div>
         )}
       </div>
 
-      {to && (
+      {sent && (
+        <div className="pt-1.5 text-[#2E7D68] text-[10px]/3">{sent}</div>
+      )}
+
+      {to && !sent && (
         <div className="pt-1.5 text-[#777777] text-[10px]/3">
           这会叫醒它，它会自己读 {path} 再决定怎么做。
         </div>
